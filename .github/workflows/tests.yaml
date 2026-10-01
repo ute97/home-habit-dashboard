@@ -1,0 +1,27 @@
+name: Test dashboard
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@v6.0.0
+        with:
+          python-version: "3.13"
+      - name: Run API tests
+        working-directory: habit-dashboard
+        run: python -m unittest discover -s tests -v
+      - name: Check browser script syntax
+        run: node --check habit-dashboard/www/app.js

@@ -1,0 +1,83 @@
+name: Build and publish Home Assistant app
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ARCHITECTURES: '["aarch64", "amd64", "armv7"]'
+  IMAGE_NAME: home-habit-dashboard
+  REGISTRY_PREFIX: ghcr.io/${{ github.repository_owner }}
+
+jobs:
+  prepare:
+    name: Prepare build matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.build_matrix }}
+      architectures: ${{ steps.matrix.outputs.architectures }}
+    steps:
+      - name: Prepare Home Assistant build matrix
+        id: matrix
+        uses: home-assistant/builder/actions/prepare-multi-arch-matrix@2026.09.0
+        with:
+          architectures: ${{ env.ARCHITECTURES }}
+          image-name: ${{ env.IMAGE_NAME }}
+          registry-prefix: ${{ env.REGISTRY_PREFIX }}
+
+  build:
+    name: Build ${{ matrix.arch }} image
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build app image
+        uses: home-assistant/builder/actions/build-image@2026.09.0
+        with:
+          arch: ${{ matrix.arch }}
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          context: ./habit-dashboard
+          image: ${{ matrix.image }}
+          image-tags: |
+            ${{ github.event.release.tag_name || 'manual' }}
+            latest
+          labels: |
+            io.hass.type=app
+            io.hass.name=Home Habit Dashboard
+            io.hass.description=A self-hosted habit, task, and goal dashboard
+          push: ${{ github.event_name == 'release' }}
+          version: ${{ github.event.release.tag_name || 'manual' }}
+
+  manifest:
+    name: Publish multi-architecture image
+    needs: [prepare, build]
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      packages: write
+    steps:
+      - name: Publish manifest
+        uses: home-assistant/builder/actions/publish-multi-arch-manifest@2026.09.0
+        with:
+          architectures: ${{ needs.prepare.outputs.architectures }}
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          image-name: ${{ env.IMAGE_NAME }}
+          image-tags: |
+            ${{ github.event.release.tag_name }}
+            latest
+          registry-prefix: ${{ env.REGISTRY_PREFIX }}
