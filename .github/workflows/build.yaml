@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 env:
-  ARCHITECTURES: '["aarch64", "amd64", "armv7"]'
+  ARCHITECTURES: '["aarch64", "amd64"]'
   IMAGE_NAME: home-habit-dashboard
   REGISTRY_PREFIX: ghcr.io/${{ github.repository_owner }}
 

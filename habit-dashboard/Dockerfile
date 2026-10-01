@@ -3,11 +3,7 @@ FROM python:3.13-alpine
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
-<<<<<<< HEAD
 RUN apk add --no-cache su-exec tzdata
-=======
-RUN apk add --no-cache su-exec
->>>>>>> a0c285f (Add habit dashboard and image build workflow)
 
 COPY server.py /app/server.py
 COPY www /app/www
