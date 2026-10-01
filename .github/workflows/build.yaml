@@ -18,8 +18,8 @@ jobs:
     name: Prepare build matrix
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.matrix.outputs.build_matrix }}
-      architectures: ${{ steps.matrix.outputs.architectures }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      architectures: ${{ steps.architectures.outputs.architectures }}
     steps:
       - name: Prepare Home Assistant build matrix
         id: matrix
@@ -28,6 +28,9 @@ jobs:
           architectures: ${{ env.ARCHITECTURES }}
           image-name: ${{ env.IMAGE_NAME }}
           registry-prefix: ${{ env.REGISTRY_PREFIX }}
+      - name: Export architecture list
+        id: architectures
+        run: echo "architectures=$ARCHITECTURES" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build ${{ matrix.arch }} image

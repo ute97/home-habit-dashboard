@@ -8,7 +8,7 @@ This is a **Home Assistant custom app repository**, not a HACS integration. HACS
 
 1. Create a public GitHub repository named `home-habit-dashboard` and upload this project to its default branch.
 2. The repository and app manifests are already configured for `ute97/home-habit-dashboard`.
-3. In **Settings → Actions → General**, allow workflows to write packages (the build workflow requests `packages: write`). Publish a GitHub Release tagged `0.1.1` (matching `habit-dashboard/config.yaml`). The workflow builds `aarch64` and `amd64` images and publishes a multi-architecture image to GHCR. Set the resulting GHCR package visibility to **Public** so your Pi can download it without credentials.
+3. In **Settings → Actions → General**, allow workflows to write packages (the build workflow requests `packages: write`). Publish a GitHub Release tagged `0.1.2` (matching `habit-dashboard/config.yaml`). The workflow builds `aarch64` and `amd64` images and publishes a multi-architecture image to GHCR. Set the resulting GHCR package visibility to **Public** so your Pi can download it without credentials.
 4. In Home Assistant, open **Settings → Apps → App Store → ⋮ → Repositories**, enter `https://github.com/ute97/home-habit-dashboard`, and add it.
 5. Install **Home Habit Dashboard** from the App Store. Set the app's `timezone` option to your IANA timezone (for example `Europe/Amsterdam`) before starting it.
 6. Open the app from the Home Assistant sidebar. Home Assistant ingress and your existing Home Assistant authentication provide access; no port forwarding or long-lived access token is needed.
