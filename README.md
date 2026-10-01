@@ -8,7 +8,7 @@ This is a **Home Assistant custom app repository**, not a HACS integration. HACS
 
 1. Create a public GitHub repository named `home-habit-dashboard` and upload this project to its default branch.
 2. The repository and app manifests are already configured for `ute97/home-habit-dashboard`.
-3. In **Settings → Actions → General**, allow workflows to write packages (the build workflow requests `packages: write`). Publish a GitHub Release tagged `0.1.3` (matching `habit-dashboard/config.yaml`). The workflow builds `aarch64` and `amd64` images and publishes a multi-architecture image to GHCR. Set the resulting GHCR package visibility to **Public** so your Pi can download it without credentials.
+3. In **Settings → Actions → General**, allow workflows to write packages (the build workflow requests `packages: write`). Publish a GitHub Release tagged `0.1.4` (matching `habit-dashboard/config.yaml`). The workflow builds `aarch64` and `amd64` images and publishes a multi-architecture image to GHCR. Set the resulting GHCR package visibility to **Public** so your Pi can download it without credentials.
 4. In Home Assistant, open **Settings → Apps → App Store → ⋮ → Repositories**, enter `https://github.com/ute97/home-habit-dashboard`, and add it.
 5. Install **Home Habit Dashboard** from the App Store. Set the app's `timezone` option to your IANA timezone (for example `Europe/Amsterdam`) before starting it.
 6. Open the app from the Home Assistant sidebar. Home Assistant ingress and your existing Home Assistant authentication provide access; no port forwarding or long-lived access token is needed.
@@ -44,7 +44,7 @@ See [the app documentation](./habit-dashboard/DOCS.md) for data storage, timezon
 ## Product boundaries
 
 - This is a standalone tracker; it does not import Home Assistant chores or create HA entities.
-- A shared profile selector keeps lists and history separate, but does not hide profile data from other dashboard users.
-- Freeze tokens are granted manually. Missed periods are evaluated once at period end; tokens added later do not retroactively repair a missed streak.
+- Personal habits, tasks, goals, and history stay profile-scoped; shared tasks appear for every profile and can be completed by anyone using the dashboard. Profiles are not an authentication boundary.
+- Freeze tokens are granted manually and spent automatically on uncovered misses. Profile vacations excuse covered occurrences; weekly/monthly targets are excused only when the entire period is covered. Misses without tokens still break streaks, and later grants do not repair settled periods.
 - Export a backup before importing: import replaces all tracker data.
 - The app uses no external fonts, analytics, or cloud sync.

@@ -12,7 +12,7 @@
   const appBase = location.pathname.startsWith("/api/hassio_ingress/")
     ? `${location.pathname.replace(/\/$/, "")}/`
     : "/";
-  const state = { view: "today", profileId: Number(localStorage.getItem("daymark-profile")) || 1, data: null, edit: null };
+  const state = { view: "today", profileId: Number(localStorage.getItem("daymark-profile")) || 1, data: null, edit: null, vacationEditId: null };
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
   let toastTimer;
@@ -92,6 +92,32 @@
     return `${date.getFullYear()}-W${String(week).padStart(2, "0")}`;
   }
 
+  function periodBounds(type, key) {
+    if (type === "week") {
+      const [year, week] = key.slice("week:".length).split("-W").map(Number);
+      const januaryFourth = new Date(year, 0, 4);
+      const start = new Date(januaryFourth);
+      start.setDate(start.getDate() - ((start.getDay() + 6) % 7) + (week - 1) * 7);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 6);
+      return [localDateString(start), localDateString(end)];
+    }
+    const [year, month] = key.slice("month:".length).split("-").map(Number);
+    return [`${year}-${String(month).padStart(2, "0")}-01`, localDateString(new Date(year, month, 0))];
+  }
+
+  function vacationCoversDay(day) {
+    return (state.data?.vacations || []).some(range => range.start_date <= day && day <= range.end_date);
+  }
+
+  function vacationCoversPeriod(type, key) {
+    const [start, end] = periodBounds(type, key);
+    for (let day = start; day <= end; day = localDayFrom(day, 1)) {
+      if (!vacationCoversDay(day)) return false;
+    }
+    return true;
+  }
+
   function localDateString(date) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   }
@@ -104,11 +130,13 @@
 
   function targetPeriodComplete(habit, type, key) {
     return periodCompletions(habit, type, key) >= Number(habit.schedule.target)
-      || (habit.freeze_periods || []).includes(key);
+      || (habit.freeze_periods || []).includes(key)
+      || vacationCoversPeriod(type, key);
   }
 
   function isScheduled(habit, day) {
     if (day < habit.created_on.slice(0, 10)) return false;
+    if (vacationCoversDay(day)) return false;
     const date = toDate(day);
     const schedule = habit.schedule || {};
     switch (habit.schedule_type) {
@@ -116,8 +144,10 @@
       case "weekdays":
       case "weekly_days": return (schedule.weekdays || []).includes((date.getDay() + 6) % 7);
       case "monthly_dates": return (schedule.dates || []).includes(date.getDate());
-      case "weekly_target": return periodCompletions(habit, "week", `week:${isoWeekKey(day)}`) < schedule.target;
-      case "monthly_target": return periodCompletions(habit, "month", `month:${day.slice(0, 7)}`) < schedule.target;
+      case "weekly_target": return !vacationCoversPeriod("week", `week:${isoWeekKey(day)}`)
+        && periodCompletions(habit, "week", `week:${isoWeekKey(day)}`) < schedule.target;
+      case "monthly_target": return !vacationCoversPeriod("month", `month:${day.slice(0, 7)}`)
+        && periodCompletions(habit, "month", `month:${day.slice(0, 7)}`) < schedule.target;
       default: return false;
     }
   }
@@ -191,6 +221,7 @@
     renderToday(habits, tasks, today);
     renderHabitGrid(habits, today);
     renderTasks(tasks, today);
+    renderVacationList();
     renderGoals(goals);
     renderInsights(habits, today);
     $$(".view").forEach(view => view.classList.toggle("active", view.id === `view-${state.view}`));
@@ -220,7 +251,7 @@
     }).join("");
     const upcoming = tasks.filter(task => !task.done).sort((a, b) => (a.due_date || "9999").localeCompare(b.due_date || "9999")).slice(0, 3);
     $("#todayTasks").innerHTML = upcoming.length ? upcoming.map(task => `
-      <div class="coming-row"><i class="coming-marker"></i><b>${escapeHtml(task.title)}</b><small>${task.due_date ? formatDate(task.due_date) : "Whenever you're ready"}</small></div>
+      <div class="coming-row"><i class="coming-marker"></i><b>${escapeHtml(task.title)}${task.shared ? '<span class="task-scope">Shared</span>' : ""}</b><small>${task.due_date ? formatDate(task.due_date) : "Whenever you're ready"}</small></div>
     `).join("") : '<div class="coming-row"><b>No open tasks on your list.</b><small>Enjoy the space.</small></div>';
   }
 
@@ -237,8 +268,9 @@
           const done = habit.completions.includes(day);
           const frozen = habit.freezes.includes(day);
           const future = day > today;
+          const vacation = vacationCoversDay(day);
           const scheduled = isScheduled(habit, day);
-          return `<button class="grid-cell ${done ? "complete" : frozen ? "frozen" : scheduled ? "scheduled" : ""} ${future || !habit.active ? "future" : ""}" ${future || !scheduled || !habit.active ? "disabled" : `data-toggle-habit="${habit.id}" data-day="${day}"`} title="${formatDate(day, { weekday: "long", month: "short", day: "numeric" })}${done ? " · completed" : frozen ? " · streak protected" : scheduled ? " · tap to check in" : ""}" aria-label="${escapeHtml(habit.name)} ${day}"></button>`;
+          return `<button class="grid-cell ${done ? "complete" : frozen ? "frozen" : vacation ? "vacation" : scheduled ? "scheduled" : ""} ${future || !habit.active ? "future" : ""}" ${future || !scheduled || !habit.active ? "disabled" : `data-toggle-habit="${habit.id}" data-day="${day}"`} title="${formatDate(day, { weekday: "long", month: "short", day: "numeric" })}${done ? " · completed" : frozen ? " · streak protected" : vacation ? " · vacation" : scheduled ? " · tap to check in" : ""}" aria-label="${escapeHtml(habit.name)} ${day}${vacation ? " vacation" : scheduled ? done ? " completed" : " scheduled" : " not scheduled"}"></button>`;
         }).join("")}
       </div>`;
     $("#habitGrid").innerHTML = header + active.map(row).join("")
@@ -253,12 +285,15 @@
       <div class="stat-box"><small>COMPLETED</small><b>${tasks.filter(task => task.done).length}</b></div>
     `;
     const filter = $("#taskFilter").value;
-    const shown = tasks.filter(task => filter === "all" || (filter === "done" ? task.done : !task.done));
+    const scopeFilter = $("#taskScopeFilter").value;
+    const shown = tasks.filter(task => (filter === "all" || (filter === "done" ? task.done : !task.done))
+      && (scopeFilter === "all" || Boolean(task.shared) === (scopeFilter === "shared")));
     $("#emptyTasks").hidden = shown.length > 0;
     $("#taskList").innerHTML = shown.map(task => `
       <div class="task-row ${task.done ? "completed" : ""}">
         <button class="check-button ${task.done ? "checked" : ""}" data-toggle-task="${task.id}" aria-label="${task.done ? "Mark open" : "Complete"} ${escapeHtml(task.title)}">${task.done ? "✓" : ""}</button>
         <div class="task-main"><b>${escapeHtml(task.title)}</b>${task.notes ? `<small>${escapeHtml(task.notes)}</small>` : ""}</div>
+        ${task.shared ? '<span class="task-scope">Shared</span>' : ""}
         <span class="priority ${task.priority}">${task.priority}</span>
         <span class="due-label ${task.due_date && task.due_date < today && !task.done ? "overdue" : ""}">${task.due_date ? formatDate(task.due_date) : "No date"}</span>
         <button class="mini-action" data-edit="task" data-id="${task.id}" aria-label="Edit ${escapeHtml(task.title)}">···</button>
@@ -299,9 +334,10 @@
         const periods = new Set(days.filter(day => day <= today && day >= habit.created_on.slice(0, 10)).map(day => kind === "week"
           ? `week:${isoWeekKey(day)}` : `month:${day.slice(0, 7)}`));
         periods.forEach(key => {
+          if (vacationCoversPeriod(kind, key)) return;
           const completed = Math.min(target, periodCompletions(habit, kind, key));
           scheduledCount += target;
-          completeCount += completed + ((habit.freeze_periods || []).includes(key) ? target - completed : 0);
+          completeCount += completed + (targetPeriodComplete(habit, kind, key) ? target - completed : 0);
         });
       } else {
         days.forEach(day => {
@@ -351,10 +387,11 @@
         const target = Number(habit.schedule.target);
         const periods = new Set(days.filter(day => day <= today && day >= habit.created_on.slice(0, 10)).map(day => kind === "week"
           ? `week:${isoWeekKey(day)}` : `month:${day.slice(0, 7)}`));
-        scheduledCount = periods.size * target;
-        completedCount = [...periods].reduce((sum, key) => {
+        const scheduledPeriods = [...periods].filter(key => !vacationCoversPeriod(kind, key));
+        scheduledCount = scheduledPeriods.length * target;
+        completedCount = scheduledPeriods.reduce((sum, key) => {
           const done = Math.min(target, periodCompletions(habit, kind, key));
-          return sum + done + ((habit.freeze_periods || []).includes(key) ? target - done : 0);
+          return sum + done + (targetPeriodComplete(habit, kind, key) ? target - done : 0);
         }, 0);
       }
       const pct = scheduledCount ? Math.round(completedCount / scheduledCount * 100) : 0;
@@ -458,6 +495,7 @@
         ${field("TASK", "title", item?.title || "", "text", { required: true, placeholder: "What needs doing?" })}
         ${field("NOTES (OPTIONAL)", "notes", item?.notes || "", "textarea")}
         <div class="form-row">${field("DUE DATE", "due_date", item?.due_date || "", "date")}<div class="field"><label>PRIORITY</label><select name="priority">${["low", "normal", "high"].map(option => `<option ${option === (item?.priority || "normal") ? "selected" : ""}>${option}</option>`).join("")}</select></div></div>
+        <div class="field"><label><input type="checkbox" name="shared" ${item?.shared ? "checked" : ""}> Shared with all profiles</label><small>Anyone using this dashboard can see and complete a shared task.</small></div>
         ${item ? `<div class="field"><label><input type="checkbox" name="done" ${item.done ? "checked" : ""}> Mark as completed</label></div>` : ""}
       `;
     } else {
@@ -499,7 +537,7 @@
       payload = { profile_id: state.profileId, name: form.get("name"), description: form.get("description"), schedule_type: scheduleType, schedule };
       if (id) payload.active = form.has("active");
     } else if (type === "task") {
-      payload = { profile_id: state.profileId, title: form.get("title"), notes: form.get("notes"), due_date: form.get("due_date") || null, priority: form.get("priority") };
+      payload = { profile_id: state.profileId, title: form.get("title"), notes: form.get("notes"), due_date: form.get("due_date") || null, priority: form.get("priority"), shared: form.has("shared") };
       if (id) payload.done = form.has("done");
     } else {
       payload = {
@@ -524,14 +562,15 @@
     const task = state.data.tasks.find(item => item.id === id);
     await api(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify({
       profile_id: state.profileId, title: task.title, notes: task.notes, due_date: task.due_date,
-      priority: task.priority, done: !task.done,
+      priority: task.priority, done: !task.done, shared: task.shared,
     }) });
     await load();
   }
 
   async function deleteItem(type, id) {
     const item = type === "goal" ? state.data.goals.find(entry => entry.id === id) : state.data.tasks.find(entry => entry.id === id);
-    if (!item || !window.confirm(`Delete "${item.title}"? This cannot be undone.`)) return;
+    const scope = type === "task" && item?.shared ? " This removes it from every profile." : "";
+    if (!item || !window.confirm(`Delete "${item.title}"?${scope} This cannot be undone.`)) return;
     await api(`/api/${type === "goal" ? "goals" : "tasks"}/${id}`, {
       method: "DELETE", body: JSON.stringify({ profile_id: state.profileId }),
     });
@@ -555,7 +594,7 @@
   }
 
   async function removeProfile() {
-    if (!window.confirm(`Remove ${state.data.profile.name} and all of its habits, tasks, goals, and history? Export a backup first if needed.`)) return;
+    if (!window.confirm(`Remove ${state.data.profile.name} and all of its habits, tasks, vacations, goals, and history? Shared tasks created by this profile will also be removed. Export a backup first if needed.`)) return;
     await api(`/api/profiles/${state.profileId}`, { method: "DELETE", body: JSON.stringify({}) });
     state.profileId = state.data.profiles.find(profile => profile.id !== state.profileId).id;
     await load();
@@ -566,6 +605,60 @@
     if (!Number.isInteger(amount)) return;
     await api(`/api/profiles/${state.profileId}/tokens`, { method: "POST", body: JSON.stringify({ amount }) });
     showToast(`${amount} freeze token${amount === 1 ? "" : "s"} granted.`);
+    await load();
+  }
+
+  function renderVacationList() {
+    const vacations = state.data?.vacations || [];
+    $("#vacationList").innerHTML = vacations.length ? vacations.map(range => {
+      const editable = range.start_date >= state.data.today;
+      return `<div class="vacation-row">
+        <div><b>${formatDate(range.start_date, { month: "short", day: "numeric", year: "numeric" })} – ${formatDate(range.end_date, { month: "short", day: "numeric", year: "numeric" })}</b><small>${editable ? "Upcoming" : "Started · fixed"}</small></div>
+        ${editable ? `<span class="vacation-actions"><button type="button" class="mini-action" data-edit-vacation="${range.id}" aria-label="Edit vacation">Edit</button><button type="button" class="mini-action" data-delete-vacation="${range.id}" aria-label="Delete vacation">Delete</button></span>` : ""}
+      </div>`;
+    }).join("") : '<p class="vacation-empty">No vacations planned.</p>';
+  }
+
+  function openVacationDialog(range = null) {
+    state.vacationEditId = range?.id ?? null;
+    $("#vacationDialogTitle").textContent = range ? "Edit vacation" : "Add vacation";
+    $("#saveVacation").textContent = range ? "Save changes" : "Save vacation";
+    $("#vacationStart").min = state.data.today;
+    $("#vacationEnd").min = state.data.today;
+    $("#vacationStart").value = range?.start_date || state.data.today;
+    $("#vacationEnd").value = range?.end_date || state.data.today;
+    $("#vacationEnd").min = $("#vacationStart").value;
+    $("#profileMenu").hidden = true;
+    $("#vacationDialog").showModal();
+  }
+
+  async function saveVacation(event) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const id = state.vacationEditId;
+    const payload = {
+      profile_id: state.profileId,
+      start_date: form.get("start_date"),
+      end_date: form.get("end_date"),
+    };
+    await api(id ? `/api/vacations/${id}` : `/api/profiles/${state.profileId}/vacations`, {
+      method: id ? "PATCH" : "POST",
+      body: JSON.stringify(payload),
+    });
+    $("#vacationDialog").close();
+    state.vacationEditId = null;
+    showToast("Vacation saved.");
+    await load();
+  }
+
+  async function deleteVacation(id) {
+    const range = state.data.vacations.find(item => item.id === id);
+    if (!range || !window.confirm(`Delete the vacation from ${formatDate(range.start_date)} to ${formatDate(range.end_date)}?`)) return;
+    await api(`/api/vacations/${id}`, {
+      method: "DELETE",
+      body: JSON.stringify({ profile_id: state.profileId }),
+    });
+    showToast("Vacation deleted.");
     await load();
   }
 
@@ -607,6 +700,11 @@
       } else if (target.dataset.view) navigate(target.dataset.view);
       else if (target.dataset.go) navigate(target.dataset.go);
       else if (target.dataset.add) openEditor(target.dataset.add);
+      else if (target.id === "manageVacations") openVacationDialog();
+      else if (target.dataset.editVacation) {
+        const range = state.data.vacations.find(item => item.id === Number(target.dataset.editVacation));
+        if (range) openVacationDialog(range);
+      } else if (target.dataset.deleteVacation) await deleteVacation(Number(target.dataset.deleteVacation));
       else if (target.dataset.edit) {
         const list = target.dataset.edit === "habit" ? state.data.habits : target.dataset.edit === "task" ? state.data.tasks : state.data.goals;
         openEditor(target.dataset.edit, list.find(item => item.id === Number(target.dataset.id)));
@@ -621,6 +719,7 @@
       else if (target.id === "exportButton") await exportData();
       else if (target.id === "importButton") $("#importFile").click();
       else if (target.id === "closeDialog" || target.id === "cancelDialog") closeEditor();
+      else if (target.id === "closeVacationDialog" || target.id === "cancelVacation") $("#vacationDialog").close();
     } catch (error) { showToast(error.message, true); }
   });
 
@@ -632,6 +731,13 @@
     try { await saveEditor(event); } catch (error) { showToast(error.message, true); }
   });
   $("#taskFilter").addEventListener("change", () => state.data && renderTasks(state.data.tasks, state.data.today));
+  $("#taskScopeFilter").addEventListener("change", () => state.data && renderTasks(state.data.tasks, state.data.today));
+  $("#vacationForm").addEventListener("submit", async event => {
+    try { await saveVacation(event); } catch (error) { showToast(error.message, true); }
+  });
+  $("#vacationStart").addEventListener("change", event => {
+    $("#vacationEnd").min = event.target.value || state.data.today;
+  });
   $("#importFile").addEventListener("change", async event => {
     const [file] = event.target.files;
     event.target.value = "";

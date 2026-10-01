@@ -52,6 +52,18 @@ def valid_date(value: object, label: str) -> str:
         raise ApiError(f"{label} must be an ISO date.") from err
 
 
+def vacation_dates(start_value: object, end_value: object, today: date) -> tuple[str, str]:
+    start = valid_date(start_value, "Vacation start date")
+    end = valid_date(end_value, "Vacation end date")
+    if start != start_value or end != end_value:
+        raise ApiError("Vacation dates must use YYYY-MM-DD format.")
+    if start < today.isoformat():
+        raise ApiError("Vacation ranges cannot start in the past.")
+    if start > end:
+        raise ApiError("Vacation start date must be on or before its end date.")
+    return start, end
+
+
 def parse_options_timezone() -> ZoneInfo:
     options_path = Path(os.environ.get("APP_OPTIONS_PATH", DATA_DIR / "options.json"))
     name = "Etc/UTC"
@@ -131,7 +143,16 @@ def init_db() -> None:
                 priority TEXT NOT NULL DEFAULT 'normal',
                 done INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
-                completed_at TEXT
+                completed_at TEXT,
+                shared INTEGER NOT NULL DEFAULT 0 CHECK (shared IN (0, 1))
+            );
+            CREATE TABLE IF NOT EXISTS vacations (
+                id INTEGER PRIMARY KEY,
+                profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+                start_date TEXT NOT NULL,
+                end_date TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                CHECK (start_date <= end_date)
             );
             CREATE TABLE IF NOT EXISTS goals (
                 id INTEGER PRIMARY KEY,
@@ -150,6 +171,9 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS goals_profile ON goals(profile_id);
             """
         )
+        task_columns = {row["name"] for row in db.execute("PRAGMA table_info(tasks)")}
+        if "shared" not in task_columns:
+            db.execute("ALTER TABLE tasks ADD COLUMN shared INTEGER NOT NULL DEFAULT 0 CHECK (shared IN (0, 1))")
         if db.execute("SELECT COUNT(*) FROM profiles").fetchone()[0] == 0:
             db.execute(
                 "INSERT INTO profiles (name, freeze_tokens, created_at) VALUES (?, 0, ?)",
@@ -164,6 +188,33 @@ def week_key(day: date) -> str:
 
 def month_key(day: date) -> str:
     return day.strftime("%Y-%m")
+
+
+def vacation_intervals(db: sqlite3.Connection, profile_id: int) -> list[tuple[date, date]]:
+    return [
+        (date.fromisoformat(row["start_date"]), date.fromisoformat(row["end_date"]))
+        for row in db.execute(
+            "SELECT start_date, end_date FROM vacations WHERE profile_id = ? ORDER BY start_date, end_date",
+            (profile_id,),
+        )
+    ]
+
+
+def vacation_covers_day(day: date, ranges: list[tuple[date, date]]) -> bool:
+    return any(start <= day <= end for start, end in ranges)
+
+
+def vacation_covers_period(start: date, end: date, ranges: list[tuple[date, date]]) -> bool:
+    cursor = start
+    for range_start, range_end in ranges:
+        if range_end < cursor:
+            continue
+        if range_start > cursor:
+            return False
+        cursor = max(cursor, range_end + timedelta(days=1))
+        if cursor > end:
+            return True
+    return False
 
 
 def schedule_matches(habit: sqlite3.Row, day: date) -> bool:
@@ -197,6 +248,7 @@ def grant_freeze_if_available(db: sqlite3.Connection, habit: sqlite3.Row, key: s
 
 
 def reconcile_profile(db: sqlite3.Connection, profile_id: int, today: date) -> None:
+    vacations = vacation_intervals(db, profile_id)
     habits = db.execute("SELECT * FROM habits WHERE profile_id = ? AND active = 1", (profile_id,)).fetchall()
     for habit in habits:
         start = date.fromisoformat(habit["last_reconciled"]) + timedelta(days=1)
@@ -210,7 +262,7 @@ def reconcile_profile(db: sqlite3.Connection, profile_id: int, today: date) -> N
                     "SELECT 1 FROM completions WHERE habit_id = ? AND completed_on = ?",
                     (habit["id"], cursor.isoformat()),
                 ).fetchone()
-                if not complete:
+                if not complete and not vacation_covers_day(cursor, vacations):
                     key = f"day:{cursor.isoformat()}"
                     grant_freeze_if_available(db, habit, key, cursor)
             elif kind == "weekly_target" and cursor.weekday() == 6:
@@ -219,7 +271,8 @@ def reconcile_profile(db: sqlite3.Connection, profile_id: int, today: date) -> N
                     "SELECT COUNT(*) FROM completions WHERE habit_id = ? AND completed_on BETWEEN ? AND ?",
                     (habit["id"], (cursor - timedelta(days=6)).isoformat(), cursor.isoformat()),
                 ).fetchone()[0]
-                if count < schedule["target"]:
+                week_start = cursor - timedelta(days=6)
+                if count < schedule["target"] and not vacation_covers_period(week_start, cursor, vacations):
                     grant_freeze_if_available(db, habit, f"week:{week_key(cursor)}", cursor)
             elif kind == "monthly_target":
                 next_day = cursor + timedelta(days=1)
@@ -230,7 +283,9 @@ def reconcile_profile(db: sqlite3.Connection, profile_id: int, today: date) -> N
                         "SELECT COUNT(*) FROM completions WHERE habit_id = ? AND completed_on BETWEEN ? AND ?",
                         (habit["id"], month_start, cursor.isoformat()),
                     ).fetchone()[0]
-                    if count < schedule["target"]:
+                    if count < schedule["target"] and not vacation_covers_period(
+                        cursor.replace(day=1), cursor, vacations
+                    ):
                         grant_freeze_if_available(db, habit, f"month:{month_key(cursor)}", cursor)
             cursor += timedelta(days=1)
             changed = True
@@ -311,13 +366,15 @@ def state_payload(db: sqlite3.Connection, profile_id: int, today: date) -> dict[
             )
         ]
         habits.append(habit)
-    tasks = [
-        {**dict(row), "done": bool(row["done"])}
-        for row in db.execute(
-            "SELECT * FROM tasks WHERE profile_id = ? ORDER BY done, due_date IS NULL, due_date, id",
-            (profile_id,),
-        )
-    ]
+    tasks = []
+    for row in db.execute(
+        "SELECT * FROM tasks WHERE profile_id = ? OR shared = 1 ORDER BY done, due_date IS NULL, due_date, id",
+        (profile_id,),
+    ):
+        task = dict(row)
+        task["done"] = bool(task["done"])
+        task["shared"] = bool(task["shared"])
+        tasks.append(task)
     goals = []
     for row in db.execute("SELECT * FROM goals WHERE profile_id = ? ORDER BY id DESC", (profile_id,)):
         goal = dict(row)
@@ -329,15 +386,22 @@ def state_payload(db: sqlite3.Connection, profile_id: int, today: date) -> dict[
         "profiles": [dict(row) for row in db.execute("SELECT * FROM profiles ORDER BY id")],
         "habits": habits,
         "tasks": tasks,
+        "vacations": [
+            dict(row)
+            for row in db.execute(
+                "SELECT id, start_date, end_date FROM vacations WHERE profile_id = ? ORDER BY start_date, end_date, id",
+                (profile_id,),
+            )
+        ],
         "goals": goals,
     }
 
 
 def export_data(db: sqlite3.Connection) -> dict[str, object]:
-    tables = ("profiles", "habits", "completions", "freeze_events", "tasks", "goals")
+    tables = ("profiles", "habits", "completions", "freeze_events", "tasks", "goals", "vacations")
     return {
         "format": "home-habit-dashboard",
-        "version": 1,
+        "version": 2,
         "exported_at": datetime.now().isoformat(timespec="seconds"),
         "tables": {
             table: [dict(row) for row in db.execute(f"SELECT * FROM {table}")]
@@ -347,14 +411,22 @@ def export_data(db: sqlite3.Connection) -> dict[str, object]:
 
 
 def import_data(db: sqlite3.Connection, payload: object) -> None:
-    if not isinstance(payload, dict) or payload.get("format") != "home-habit-dashboard" or payload.get("version") != 1:
+    if (
+        not isinstance(payload, dict)
+        or payload.get("format") != "home-habit-dashboard"
+        or type(payload.get("version")) is not int
+        or payload["version"] not in {1, 2}
+    ):
         raise ApiError("This file is not a supported dashboard export.")
+    version = payload["version"]
     tables = payload.get("tables")
     expected = ("profiles", "habits", "completions", "freeze_events", "tasks", "goals")
+    if version == 2:
+        expected += ("vacations",)
     if not isinstance(tables, dict) or any(not isinstance(tables.get(name), list) for name in expected):
         raise ApiError("The export file is incomplete or invalid.")
     with db:
-        for table in reversed(expected):
+        for table in ("vacations", "goals", "tasks", "freeze_events", "completions", "habits", "profiles"):
             db.execute(f"DELETE FROM {table}")
         for table in expected:
             for item in tables[table]:
@@ -365,11 +437,25 @@ def import_data(db: sqlite3.Connection, payload: object) -> None:
                     "habits": {"id", "profile_id", "name", "description", "schedule_type", "schedule_json", "active", "created_on", "last_reconciled"},
                     "completions": {"habit_id", "completed_on"},
                     "freeze_events": {"id", "habit_id", "period_key", "protected_on"},
-                    "tasks": {"id", "profile_id", "title", "notes", "due_date", "priority", "done", "created_at", "completed_at"},
+                    "tasks": {"id", "profile_id", "title", "notes", "due_date", "priority", "done", "created_at", "completed_at"}
+                    | ({"shared"} if version == 2 else set()),
                     "goals": {"id", "profile_id", "title", "description", "target", "progress", "unit", "due_date", "milestones_json", "created_at"},
+                    "vacations": {"id", "profile_id", "start_date", "end_date", "created_at"},
                 }[table]
                 if set(item) != columns:
                     raise ApiError(f"Invalid fields in {table}.")
+                item = dict(item)
+                if table == "tasks" and version == 1:
+                    item["shared"] = 0
+                if table == "tasks" and version == 2 and (
+                    type(item["shared"]) not in (int, bool) or item["shared"] not in (0, 1)
+                ):
+                    raise ApiError("Invalid shared value in tasks.")
+                if table == "vacations":
+                    start = valid_date(item["start_date"], "Vacation start date")
+                    end = valid_date(item["end_date"], "Vacation end date")
+                    if start != item["start_date"] or end != item["end_date"] or start > end:
+                        raise ApiError("Invalid vacation date range in export.")
                 names = list(item)
                 db.execute(
                     f"INSERT INTO {table} ({','.join(names)}) VALUES ({','.join('?' for _ in names)})",
@@ -446,7 +532,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             with DB_LOCK, database() as db:
                 result = self.mutate(db, path, payload)
-            self.send_json(result, 201 if path in {"/api/profiles", "/api/habits", "/api/tasks", "/api/goals"} else 200)
+            created = path in {"/api/profiles", "/api/habits", "/api/tasks", "/api/goals"} or bool(
+                re.fullmatch(r"/api/profiles/\d+/vacations", path)
+            )
+            self.send_json(result, 201 if created else 200)
         except ApiError as err:
             self.send_json({"error": str(err)}, err.status)
         except (ValueError, KeyError, TypeError) as err:
@@ -495,11 +584,47 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(payload, dict):
             raise ApiError("Request body must be an object.")
         profile_match = re.fullmatch(r"/api/profiles/(\d+)(?:/(tokens))?", path)
+        vacation_profile_match = re.fullmatch(r"/api/profiles/(\d+)/vacations", path)
+        vacation_match = re.fullmatch(r"/api/vacations/(\d+)", path)
         habit_match = re.fullmatch(r"/api/habits/(\d+)(?:/(toggle))?", path)
         task_match = re.fullmatch(r"/api/tasks/(\d+)", path)
         goal_match = re.fullmatch(r"/api/goals/(\d+)", path)
         method = self.command
         today = datetime.now(self.timezone).date()
+
+        if vacation_profile_match and method == "POST":
+            profile_id = int(vacation_profile_match.group(1))
+            profile_exists(db, profile_id)
+            start, end = vacation_dates(payload.get("start_date"), payload.get("end_date"), today)
+            with db:
+                cursor = db.execute(
+                    "INSERT INTO vacations (profile_id, start_date, end_date, created_at) VALUES (?, ?, ?, ?)",
+                    (profile_id, start, end, datetime.now().isoformat(timespec="seconds")),
+                )
+            return {"id": cursor.lastrowid}
+        if vacation_match:
+            vacation_id = int(vacation_match.group(1))
+            profile_id = int(payload.get("profile_id", 0))
+            profile_exists(db, profile_id)
+            vacation = db.execute(
+                "SELECT * FROM vacations WHERE id = ? AND profile_id = ?", (vacation_id, profile_id)
+            ).fetchone()
+            if not vacation:
+                raise ApiError("Vacation not found.", 404)
+            if vacation["start_date"] < today.isoformat():
+                raise ApiError("Started vacation ranges cannot be changed.")
+            if method == "PATCH":
+                start, end = vacation_dates(payload.get("start_date"), payload.get("end_date"), today)
+                with db:
+                    db.execute(
+                        "UPDATE vacations SET start_date = ?, end_date = ? WHERE id = ?",
+                        (start, end, vacation_id),
+                    )
+                return {"ok": True}
+            if method == "DELETE":
+                with db:
+                    db.execute("DELETE FROM vacations WHERE id = ?", (vacation_id,))
+                return {"ok": True}
 
         if path == "/api/profiles" and method == "POST":
             name = clean_text(payload.get("name"), "Profile name", 60)
@@ -590,20 +715,24 @@ class Handler(BaseHTTPRequestHandler):
             notes = clean_text(payload.get("notes", ""), "Notes", 1000, required=False)
             due = valid_date(payload["due_date"], "Due date") if payload.get("due_date") else None
             priority = payload.get("priority", "normal")
+            shared = payload.get("shared", False)
             if priority not in TASK_PRIORITIES:
                 raise ApiError("Choose low, normal, or high priority.")
+            if type(shared) is not bool:
+                raise ApiError("Shared must be true or false.")
             with db:
                 cursor = db.execute(
-                    """INSERT INTO tasks (profile_id, title, notes, due_date, priority, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)""",
-                    (profile_id, title, notes, due, priority, datetime.now().isoformat(timespec="seconds")),
+                    """INSERT INTO tasks (profile_id, title, notes, due_date, priority, created_at, shared)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (profile_id, title, notes, due, priority, datetime.now().isoformat(timespec="seconds"), int(shared)),
                 )
             return {"id": cursor.lastrowid}
         if task_match:
             task_id = int(task_match.group(1))
             profile_id = int(payload.get("profile_id", 0))
-            row = db.execute("SELECT * FROM tasks WHERE id = ? AND profile_id = ?", (task_id, profile_id)).fetchone()
-            if not row:
+            profile_exists(db, profile_id)
+            row = db.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            if not row or (row["profile_id"] != profile_id and not row["shared"]):
                 raise ApiError("Task not found.", 404)
             if method == "PATCH":
                 title = clean_text(payload.get("title"), "Task title", 160)
@@ -611,13 +740,16 @@ class Handler(BaseHTTPRequestHandler):
                 due = valid_date(payload["due_date"], "Due date") if payload.get("due_date") else None
                 priority = payload.get("priority", "normal")
                 done = payload.get("done", False)
-                if priority not in TASK_PRIORITIES or type(done) is not bool:
+                shared = payload.get("shared", bool(row["shared"]))
+                if priority not in TASK_PRIORITIES or type(done) is not bool or type(shared) is not bool:
                     raise ApiError("Invalid task priority or completion state.")
+                if row["profile_id"] != profile_id and shared != bool(row["shared"]):
+                    raise ApiError("Only the task's profile can change its sharing setting.", 403)
                 with db:
                     db.execute(
                         """UPDATE tasks SET title = ?, notes = ?, due_date = ?, priority = ?,
-                        done = ?, completed_at = ? WHERE id = ?""",
-                        (title, notes, due, priority, int(done), datetime.now().isoformat(timespec="seconds") if done else None, task_id),
+                        done = ?, completed_at = ?, shared = ? WHERE id = ?""",
+                        (title, notes, due, priority, int(done), datetime.now().isoformat(timespec="seconds") if done else None, int(shared), task_id),
                     )
                 return {"ok": True}
             if method == "DELETE":

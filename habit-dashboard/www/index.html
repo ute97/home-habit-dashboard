@@ -23,11 +23,11 @@
       </a>
       <div class="side-label">WORKSPACE</div>
       <nav id="navigation" aria-label="Main navigation">
-        <button class="nav-item active" data-view="today"><span>◷</span> Today <kbd>1</kbd></button>
-        <button class="nav-item" data-view="habits"><span>▦</span> Habit grid <kbd>2</kbd></button>
-        <button class="nav-item" data-view="tasks"><span>☷</span> Tasks <kbd>3</kbd></button>
-        <button class="nav-item" data-view="goals"><span>◎</span> Goals <kbd>4</kbd></button>
-        <button class="nav-item" data-view="insights"><span>⌁</span> Insights <kbd>5</kbd></button>
+        <button class="nav-item active" data-view="today"><span>◷</span> Today</button>
+        <button class="nav-item" data-view="habits"><span>▦</span> Habit grid</button>
+        <button class="nav-item" data-view="tasks"><span>☷</span> Tasks</button>
+        <button class="nav-item" data-view="goals"><span>◎</span> Goals</button>
+        <button class="nav-item" data-view="insights"><span>⌁</span> Insights</button>
       </nav>
       <div class="side-bottom">
         <div class="local-note"><i></i><span><b>Private by design</b><small>Your data stays on your Home Assistant</small></span></div>
@@ -49,6 +49,8 @@
               <button id="addProfile">＋ Add profile</button>
               <button id="renameProfile">✎ Rename profile</button>
               <button id="grantTokens">❄ Grant freeze tokens</button>
+              <button id="manageVacations">▦ Manage vacations</button>
+              <p class="profile-help">Tokens protect missed habits automatically. Vacations excuse covered dates without using tokens.</p>
               <button id="removeProfile" class="danger-text">Remove profile</button>
               <hr>
               <button id="exportButton">↓ Export data</button>
@@ -79,7 +81,6 @@
                 <div class="ring-wrap"><svg class="ring" viewBox="0 0 120 120" role="img" aria-label="Today's completion"><circle class="ring-track" cx="60" cy="60" r="50"></circle><circle class="ring-value" id="todayRing" cx="60" cy="60" r="50"></circle></svg><div class="ring-label"><strong id="todayPercent">0%</strong><small>COMPLETE</small></div></div>
                 <p id="ringMessage">Every check-in is a vote for the person you're becoming.</p>
               </section>
-              <section class="quote-card"><span class="quote-mark">“</span><blockquote>We are what we repeatedly do. Excellence, then, is not an act, but a habit.</blockquote><span class="quote-by">— WILL DURANT</span></section>
             </aside>
           </div>
           <section class="section-block"><div class="section-head"><div><div class="eyebrow">ON YOUR RADAR</div><h2>Coming up</h2></div><button class="text-button" data-go="tasks">All tasks →</button></div><div id="todayTasks" class="coming-list"></div></section>
@@ -91,11 +92,11 @@
             <button class="button primary" data-add="habit">＋ New habit</button>
           </div>
           <section class="card grid-card">
-            <div class="section-head grid-head"><div><div class="eyebrow">YOUR RHYTHM</div><h2>Recent check-ins</h2></div><div class="grid-legend"><span><i class="legend-dot done-dot"></i> Done</span><span><i class="legend-dot freeze-dot"></i> Protected</span></div></div>
+            <div class="section-head grid-head"><div><div class="eyebrow">YOUR RHYTHM</div><h2>Recent check-ins</h2></div><div class="grid-legend"><span><i class="legend-dot done-dot"></i> Done</span><span><i class="legend-dot freeze-dot"></i> Protected</span><span><i class="legend-dot vacation-dot"></i> Vacation</span></div></div>
             <div class="habit-grid-scroll"><div id="habitGrid" class="habit-grid"></div></div>
             <div id="emptyGrid" class="empty-state" hidden><b>Your habit grid starts here.</b><p>Add a daily, weekly, or monthly habit and watch your rhythm take shape.</p><button class="button secondary" data-add="habit">Add your first habit</button></div>
           </section>
-          <div class="grid-footnote">Missed days don't erase your progress. Grant freeze tokens from your profile menu to protect future missed periods.</div>
+          <div class="grid-footnote">Freeze tokens are used automatically for uncovered misses. A miss with no token breaks the streak; later grants do not protect it retroactively.</div>
         </section>
 
         <section class="view" id="view-tasks">
@@ -104,7 +105,7 @@
             <button class="button primary" data-add="task">＋ Add task</button>
           </div>
           <div class="task-stats" id="taskStats"></div>
-          <section class="card task-card"><div class="section-head"><div><div class="eyebrow">YOUR LIST</div><h2>Tasks</h2></div><select id="taskFilter" class="small-select" aria-label="Filter tasks"><option value="open">To do</option><option value="all">All tasks</option><option value="done">Completed</option></select></div><div id="taskList" class="task-list"></div><div id="emptyTasks" class="empty-state" hidden><span class="empty-icon">☷</span><b>Room for a fresh start.</b><p>Add your first task and give it a place on the list.</p><button class="button secondary" data-add="task">Add a task</button></div></section>
+          <section class="card task-card"><div class="section-head"><div><div class="eyebrow">YOUR LIST</div><h2>Tasks</h2></div><div class="task-filters"><select id="taskFilter" class="small-select" aria-label="Filter by status"><option value="open">To do</option><option value="all">All tasks</option><option value="done">Completed</option></select><select id="taskScopeFilter" class="small-select" aria-label="Filter by sharing"><option value="all">Personal and shared</option><option value="personal">Personal</option><option value="shared">Shared</option></select></div></div><div id="taskList" class="task-list"></div><div id="emptyTasks" class="empty-state" hidden><span class="empty-icon">☷</span><b>Room for a fresh start.</b><p>Add your first task and give it a place on the list.</p><button class="button secondary" data-add="task">Add a task</button></div></section>
         </section>
 
         <section class="view" id="view-goals">
@@ -131,6 +132,15 @@
     </main>
   </div>
 
+  <dialog id="vacationDialog">
+    <form id="vacationForm">
+      <div class="dialog-head"><div><p class="eyebrow">TIME AWAY</p><h2 id="vacationDialogTitle">Add vacation</h2></div><button type="button" class="close-button" id="closeVacationDialog" aria-label="Close">×</button></div>
+      <p class="vacation-guidance">Daily habits are excused on vacation dates. Weekly or monthly targets are excused only when the entire period is covered. Started vacation ranges cannot be changed.</p>
+      <div class="form-row vacation-date-fields"><div class="field"><label for="vacationStart">START DATE</label><input id="vacationStart" name="start_date" type="date" required></div><div class="field"><label for="vacationEnd">END DATE</label><input id="vacationEnd" name="end_date" type="date" required></div></div>
+      <div class="dialog-actions"><button type="button" class="button secondary" id="cancelVacation">Cancel</button><button type="submit" class="button primary" id="saveVacation">Save vacation</button></div>
+      <div id="vacationList" class="vacation-list"></div>
+    </form>
+  </dialog>
   <dialog id="editor">
     <form id="editorForm" method="dialog">
       <div class="dialog-head"><div><p class="eyebrow" id="dialogEyebrow">MAKE IT YOURS</p><h2 id="dialogTitle">New habit</h2></div><button type="button" class="close-button" id="closeDialog" aria-label="Close">×</button></div>

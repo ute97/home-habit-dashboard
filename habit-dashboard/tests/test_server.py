@@ -5,6 +5,7 @@ import threading
 import unittest
 from datetime import date, timedelta
 from http.server import ThreadingHTTPServer
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -122,23 +123,167 @@ class ApiTests(unittest.TestCase):
             count = db.execute("SELECT COUNT(*) FROM freeze_events WHERE habit_id = ?", (habit["id"],)).fetchone()[0]
         self.assertEqual(count, 1)
 
+    def test_target_vacations_require_full_week_or_month_coverage(self):
+        week_start = date(2025, 1, 6)
+        second_week_start = date(2025, 1, 13)
+        month_start = date(2025, 2, 1)
+        partial_month_start = date(2025, 3, 1)
+        with server.DB_LOCK, server.database() as db:
+            db.execute("UPDATE profiles SET freeze_tokens = 50 WHERE id = 1")
+            for start, end in (
+                (week_start, week_start + timedelta(days=6)),
+                (second_week_start, second_week_start + timedelta(days=5)),
+                (month_start, date(2025, 2, 28)),
+                (partial_month_start, date(2025, 3, 30)),
+            ):
+                db.execute(
+                    "INSERT INTO vacations (profile_id, start_date, end_date, created_at) VALUES (1, ?, ?, 'test')",
+                    (start.isoformat(), end.isoformat()),
+                )
+            habits = {}
+            for name, kind, target, created, reconciled in (
+                ("Full week", "weekly_target", 3, week_start, week_start - timedelta(days=1)),
+                ("Partial week", "weekly_target", 3, second_week_start, second_week_start - timedelta(days=1)),
+                ("Full month", "monthly_target", 4, month_start, month_start - timedelta(days=1)),
+                ("Partial month", "monthly_target", 4, partial_month_start, partial_month_start - timedelta(days=1)),
+            ):
+                cursor = db.execute(
+                    """INSERT INTO habits
+                    (profile_id, name, schedule_type, schedule_json, created_on, last_reconciled)
+                    VALUES (1, ?, ?, ?, ?, ?)""",
+                    (name, kind, json.dumps({"target": target}), created.isoformat(), reconciled.isoformat()),
+                )
+                habits[name] = cursor.lastrowid
+            server.reconcile_profile(db, 1, date(2025, 4, 1))
+            events = {
+                name: {row["period_key"] for row in db.execute(
+                    "SELECT period_key FROM freeze_events WHERE habit_id = ?", (habit_id,)
+                )}
+                for name, habit_id in habits.items()
+            }
+        self.assertNotIn(f"week:{server.week_key(week_start + timedelta(days=6))}", events["Full week"])
+        self.assertIn(f"week:{server.week_key(second_week_start + timedelta(days=6))}", events["Partial week"])
+        self.assertNotIn("month:2025-02", events["Full month"])
+        self.assertIn("month:2025-03", events["Partial month"])
+
     def test_task_goal_export_import_round_trip_and_validation(self):
         task = self.request("POST", "/api/tasks", {
-            "profile_id": 1, "title": "Plan the week", "priority": "high",
+            "profile_id": 1, "title": "Plan the week", "priority": "high", "shared": True,
+        }, expected=201)
+        today = date.today()
+        vacation = self.request("POST", "/api/profiles/1/vacations", {
+            "start_date": (today + timedelta(days=2)).isoformat(),
+            "end_date": (today + timedelta(days=4)).isoformat(),
         }, expected=201)
         goal = self.request("POST", "/api/goals", {
             "profile_id": 1, "title": "Read more", "target": 12, "progress": 3, "unit": "books",
             "milestones": ["First book", "Halfway there"],
         }, expected=201)
         exported = self.request("GET", "/api/export")
+        self.assertEqual(exported["version"], 2)
+        self.assertEqual(exported["tables"]["tasks"][0]["shared"], 1)
+        self.assertEqual(len(exported["tables"]["vacations"]), 1)
         self.request("DELETE", f"/api/tasks/{task['id']}", {"profile_id": 1})
+        self.request("DELETE", f"/api/vacations/{vacation['id']}", {"profile_id": 1})
         self.request("DELETE", f"/api/goals/{goal['id']}", {"profile_id": 1})
         self.request("POST", "/api/import", exported)
         state = self.request("GET", "/api/state?profile_id=1")
         self.assertEqual(state["tasks"][0]["title"], "Plan the week")
+        self.assertTrue(state["tasks"][0]["shared"])
+        self.assertEqual(len(state["vacations"]), 1)
         self.assertEqual(state["goals"][0]["milestones"], ["First book", "Halfway there"])
         self.request("POST", "/api/habits", {
             "profile_id": 1, "name": "Invalid", "schedule_type": "weekdays", "schedule": {"weekdays": [9]},
+        }, expected=400)
+
+    def test_shared_task_is_visible_and_completable_from_every_profile(self):
+        second_profile = self.request("POST", "/api/profiles", {"name": "Alex"}, expected=201)
+        personal = self.request("POST", "/api/tasks", {
+            "profile_id": 1, "title": "Personal task",
+        }, expected=201)
+        shared = self.request("POST", "/api/tasks", {
+            "profile_id": 1, "title": "Shared task", "shared": True,
+        }, expected=201)
+
+        first_state = self.request("GET", "/api/state?profile_id=1")
+        second_state = self.request("GET", f"/api/state?profile_id={second_profile['id']}")
+        self.assertEqual({task["id"] for task in first_state["tasks"]}, {personal["id"], shared["id"]})
+        self.assertEqual([task["id"] for task in second_state["tasks"]], [shared["id"]])
+        self.assertTrue(second_state["tasks"][0]["shared"])
+
+        self.request("PATCH", f"/api/tasks/{shared['id']}", {
+            "profile_id": second_profile["id"], "title": "Shared task", "notes": "",
+            "due_date": None, "priority": "normal", "done": True, "shared": True,
+        })
+        for profile_id in (1, second_profile["id"]):
+            tasks = self.request("GET", f"/api/state?profile_id={profile_id}")["tasks"]
+            self.assertTrue(next(task for task in tasks if task["id"] == shared["id"])["done"])
+
+    def test_existing_database_adds_personal_task_scope_idempotently(self):
+        original_data_dir, original_db_path = server.DATA_DIR, server.DB_PATH
+        with tempfile.TemporaryDirectory() as temp_dir:
+            server.DATA_DIR = Path(temp_dir)
+            server.DB_PATH = server.DATA_DIR / "legacy.sqlite3"
+            db = server.sqlite3.connect(server.DB_PATH)
+            db.executescript(
+                """
+                CREATE TABLE profiles (
+                    id INTEGER PRIMARY KEY, name TEXT NOT NULL,
+                    freeze_tokens INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
+                );
+                CREATE TABLE tasks (
+                    id INTEGER PRIMARY KEY,
+                    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+                    title TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '', due_date TEXT,
+                    priority TEXT NOT NULL DEFAULT 'normal', done INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL, completed_at TEXT
+                );
+                INSERT INTO profiles (id, name, created_at) VALUES (1, 'Legacy', 'test');
+                INSERT INTO tasks (id, profile_id, title, created_at) VALUES (4, 1, 'Keep personal', 'test');
+                """
+            )
+            db.close()
+            try:
+                server.init_db()
+                server.init_db()
+                with server.database() as migrated:
+                    task = migrated.execute("SELECT * FROM tasks WHERE id = 4").fetchone()
+                    self.assertEqual(task["shared"], 0)
+                    self.assertEqual(migrated.execute("SELECT COUNT(*) FROM vacations").fetchone()[0], 0)
+            finally:
+                server.DATA_DIR, server.DB_PATH = original_data_dir, original_db_path
+
+    def test_vacation_skips_covered_daily_freezes_and_is_profile_scoped(self):
+        today = date.today()
+        second_profile = self.request("POST", "/api/profiles", {"name": "Alex"}, expected=201)
+        vacation = self.request("POST", "/api/profiles/1/vacations", {
+            "start_date": (today + timedelta(days=1)).isoformat(),
+            "end_date": (today + timedelta(days=2)).isoformat(),
+        }, expected=201)
+        self.assertIn("id", vacation)
+        self.request("POST", "/api/profiles/1/tokens", {"amount": 1})
+        habit = self.request("POST", "/api/habits", {
+            "profile_id": 1, "name": "Walk", "schedule_type": "daily", "schedule": {},
+        }, expected=201)
+
+        first_state = self.request("GET", f"/api/state?profile_id=1&today={(today + timedelta(days=4)).isoformat()}")
+        second_state = self.request("GET", f"/api/state?profile_id={second_profile['id']}")
+        self.assertEqual(first_state["vacations"], [{
+            "id": vacation["id"], "start_date": (today + timedelta(days=1)).isoformat(),
+            "end_date": (today + timedelta(days=2)).isoformat(),
+        }])
+        self.assertEqual(second_state["vacations"], [])
+        self.assertEqual(first_state["profile"]["freeze_tokens"], 0)
+        self.assertEqual(first_state["habits"][0]["freezes"], [(today + timedelta(days=3)).isoformat()])
+        with server.DB_LOCK, server.database() as db:
+            events = [row["protected_on"] for row in db.execute(
+                "SELECT protected_on FROM freeze_events WHERE habit_id = ? ORDER BY protected_on",
+                (habit["id"],),
+            )]
+        self.assertEqual(events, [(today + timedelta(days=3)).isoformat()])
+        self.request("POST", "/api/profiles/1/vacations", {
+            "start_date": (today - timedelta(days=1)).isoformat(),
+            "end_date": today.isoformat(),
         }, expected=400)
 
     def test_import_rejects_wrong_format_without_mutating_existing_data(self):
@@ -146,6 +291,26 @@ class ApiTests(unittest.TestCase):
         self.request("POST", "/api/import", {"format": "other", "version": 1, "tables": {}}, expected=400)
         state = self.request("GET", "/api/state?profile_id=1")
         self.assertEqual(state["tasks"][0]["title"], "Keep me")
+
+    def test_version_one_import_defaults_shared_tasks_and_clears_vacations(self):
+        self.request("POST", "/api/tasks", {"profile_id": 1, "title": "Legacy task"}, expected=201)
+        today = date.today()
+        self.request("POST", "/api/profiles/1/vacations", {
+            "start_date": (today + timedelta(days=1)).isoformat(),
+            "end_date": (today + timedelta(days=2)).isoformat(),
+        }, expected=201)
+        exported = self.request("GET", "/api/export")
+        legacy_tables = {
+            name: exported["tables"][name]
+            for name in ("profiles", "habits", "completions", "freeze_events", "tasks", "goals")
+        }
+        for task in legacy_tables["tasks"]:
+            task.pop("shared")
+        legacy = {"format": "home-habit-dashboard", "version": 1, "tables": legacy_tables}
+        self.request("POST", "/api/import", legacy)
+        state = self.request("GET", "/api/state?profile_id=1")
+        self.assertFalse(state["tasks"][0]["shared"])
+        self.assertEqual(state["vacations"], [])
 
     def test_import_preserves_non_default_profile_ids(self):
         with server.DB_LOCK, server.database() as db:
