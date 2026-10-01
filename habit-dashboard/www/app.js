@@ -248,7 +248,12 @@
   function render() {
     $("#crumb").textContent = labels[state.view];
     $$(".view").forEach(view => view.classList.toggle("active", view.id === `view-${state.view}`));
-    $$(".nav-item").forEach(item => item.classList.toggle("active", item.dataset.view === state.view));
+    $$(".nav-item").forEach(item => {
+      const active = item.dataset.view === state.view;
+      item.classList.toggle("active", active);
+      if (active) item.setAttribute("aria-current", "page");
+      else item.removeAttribute("aria-current");
+    });
     if (!state.data) return;
     const { profile, profiles, habits, tasks, goals, today } = state.data;
     $("#profileName").textContent = profile.name;

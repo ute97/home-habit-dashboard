@@ -16,16 +16,28 @@
 </head>
 <body>
   <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="#" aria-label="Home Habit Dashboard">
+        <span class="brand-mark">H</span>
+        <span><strong>DAYMARK</strong><small>YOUR PERSONAL DASHBOARD</small></span>
+      </a>
+      <div class="side-label">WORKSPACE</div>
+      <nav id="navigation" aria-label="Main navigation">
+        <button class="nav-item active" data-view="today" aria-current="page"><span>◷</span> Today</button>
+        <button class="nav-item" data-view="habits"><span>▦</span> Habit grid</button>
+        <button class="nav-item" data-view="tasks"><span>☷</span> Tasks</button>
+        <button class="nav-item" data-view="goals"><span>◎</span> Goals</button>
+        <button class="nav-item" data-view="insights"><span>⌁</span> Insights</button>
+      </nav>
+      <div class="side-bottom">
+        <div class="local-note"><i></i><span><b>Private by design</b><small>Your data stays on your Home Assistant</small></span></div>
+        <span class="version">DAYMARK · SELF-HOSTED</span>
+      </div>
+    </aside>
+
     <main class="main">
       <header class="topbar">
-        <div class="breadcrumbs"><b id="crumb">Today</b></div>
-        <nav id="navigation" class="top-navigation" aria-label="Main navigation">
-          <button class="nav-item active" data-view="today" aria-current="page"><span aria-hidden="true">◷</span><span>Today</span></button>
-          <button class="nav-item" data-view="habits"><span aria-hidden="true">▦</span><span>Habits</span></button>
-          <button class="nav-item" data-view="tasks"><span aria-hidden="true">☷</span><span>Tasks</span></button>
-          <button class="nav-item" data-view="goals"><span aria-hidden="true">◎</span><span>Goals</span></button>
-          <button class="nav-item" data-view="insights"><span aria-hidden="true">⌁</span><span>Insights</span></button>
-        </nav>
+        <div class="breadcrumbs"><span>WORKSPACE</span><span class="crumb-sep">/</span><b id="crumb">Today</b></div>
         <div class="top-actions">
           <div class="profile-wrap">
             <button class="profile-button" id="profileButton" aria-haspopup="true">
