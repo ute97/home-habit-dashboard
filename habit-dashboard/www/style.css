@@ -54,7 +54,7 @@ button { color: inherit; }
 .chevron { margin-left: 3px; color: var(--faint); }
 .icon-button { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid #455d4b; border-radius: 7px; color: var(--mint); background: #1b2c21; font-size: 22px; cursor: pointer; }
 .icon-button:hover { background: #253a2b; }
-.profile-menu { position: absolute; z-index: 10; top: 43px; right: 0; width: 225px; padding: 13px; border: 1px solid var(--line); border-radius: 9px; background: #1a211d; box-shadow: 0 15px 40px #0009; }
+.profile-menu { position: absolute; z-index: 10; top: 43px; right: 0; width: 225px; max-height: min(80vh, 560px); overflow-y: auto; overscroll-behavior: contain; padding: 13px; border: 1px solid var(--line); border-radius: 9px; background: #1a211d; box-shadow: 0 15px 40px #0009; }
 .profile-menu[hidden] { display: none; }
 .profile-menu label { display: block; margin: 2px 4px 6px; color: var(--faint); font-size: 9px; letter-spacing: .12em; }
 .profile-menu select { margin-bottom: 8px; }

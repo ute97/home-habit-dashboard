@@ -55,7 +55,7 @@ class ApiTests(unittest.TestCase):
 
     def setUp(self):
         with server.DB_LOCK, server.database() as db:
-            for table in ("completions", "freeze_events", "tasks", "goals", "habits", "profiles"):
+            for table in ("completions", "freeze_events", "tasks", "vacations", "goals", "habits", "profiles"):
                 db.execute(f"DELETE FROM {table}")
             db.execute(
                 "INSERT INTO profiles (id, name, freeze_tokens, created_at) VALUES (1, 'Me', 0, 'test')"
@@ -87,6 +87,70 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(state["habits"][0]["completions"], [day])
         self.request("DELETE", f"/api/profiles/{profile_id}", {}, expected=200)
         self.request("GET", f"/api/state?profile_id={profile_id}", expected=404)
+
+    def test_profile_reset_clears_owned_data_and_preserves_profile(self):
+        second = self.request("POST", "/api/profiles", {"name": "Alex"}, expected=201)
+        self.request("POST", "/api/profiles/1/tokens", {"amount": 3})
+        self.request("POST", f"/api/profiles/{second['id']}/tokens", {"amount": 2})
+        first_habit = self.request("POST", "/api/habits", {
+            "profile_id": 1, "name": "First habit", "schedule_type": "daily", "schedule": {},
+        }, expected=201)
+        second_habit = self.request("POST", "/api/habits", {
+            "profile_id": second["id"], "name": "Second habit", "schedule_type": "daily", "schedule": {},
+        }, expected=201)
+        day = date.today().isoformat()
+        for habit in (first_habit, second_habit):
+            self.request("POST", f"/api/habits/{habit['id']}/toggle", {
+                "profile_id": 1 if habit is first_habit else second["id"], "date": day,
+            })
+        first_task = self.request("POST", "/api/tasks", {
+            "profile_id": 1, "title": "Shared task", "shared": True,
+        }, expected=201)
+        second_task = self.request("POST", "/api/tasks", {
+            "profile_id": second["id"], "title": "Alex task",
+        }, expected=201)
+        first_goal = self.request("POST", "/api/goals", {
+            "profile_id": 1, "title": "First goal",
+        }, expected=201)
+        second_goal = self.request("POST", "/api/goals", {
+            "profile_id": second["id"], "title": "Alex goal",
+        }, expected=201)
+        tomorrow = (date.today() + timedelta(days=1)).isoformat()
+        first_vacation = self.request("POST", "/api/profiles/1/vacations", {
+            "start_date": tomorrow, "end_date": tomorrow,
+        }, expected=201)
+        second_vacation = self.request("POST", f"/api/profiles/{second['id']}/vacations", {
+            "start_date": tomorrow, "end_date": tomorrow,
+        }, expected=201)
+        with server.DB_LOCK, server.database() as db:
+            for habit in (first_habit, second_habit):
+                db.execute(
+                    "INSERT INTO freeze_events (habit_id, period_key, protected_on) VALUES (?, ?, ?)",
+                    (habit["id"], f"day:{day}", day),
+                )
+
+        self.request("POST", "/api/profiles/1/reset", {}, expected=200)
+
+        first_state = self.request("GET", "/api/state?profile_id=1")
+        second_state = self.request("GET", f"/api/state?profile_id={second['id']}")
+        self.assertEqual(first_state["profile"]["name"], "Me")
+        self.assertEqual(first_state["profile"]["freeze_tokens"], 0)
+        self.assertEqual(first_state["habits"], [])
+        self.assertEqual(first_state["tasks"], [])
+        self.assertEqual(first_state["goals"], [])
+        self.assertEqual(first_state["vacations"], [])
+        self.assertEqual([habit["name"] for habit in second_state["habits"]], ["Second habit"])
+        self.assertEqual([task["id"] for task in second_state["tasks"]], [second_task["id"]])
+        self.assertEqual([goal["id"] for goal in second_state["goals"]], [second_goal["id"]])
+        self.assertEqual([vacation["id"] for vacation in second_state["vacations"]], [second_vacation["id"]])
+        self.assertNotIn(first_task["id"], {task["id"] for task in second_state["tasks"]})
+        self.assertNotIn(first_goal["id"], {goal["id"] for goal in second_state["goals"]})
+        self.assertNotIn(first_vacation["id"], {vacation["id"] for vacation in second_state["vacations"]})
+        self.request("POST", f"/api/profiles/{second['id']}/reset", {}, expected=200)
+        last_profile_state = self.request("GET", f"/api/state?profile_id={second['id']}")
+        self.assertEqual(last_profile_state["profile"]["name"], "Alex")
+        self.assertEqual(last_profile_state["tasks"], [])
+        self.request("POST", "/api/profiles/999/reset", {}, expected=404)
 
     def test_daily_miss_spends_one_token_exactly_once(self):
         today = date.today()

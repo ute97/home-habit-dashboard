@@ -12,6 +12,10 @@ The SQLite database is stored at `/data/habits.sqlite3`. Home Assistant includes
 
 The tracker does not create Home Assistant entities or call Home Assistant services. The shared profile picker is not an authentication boundary; people with access to this dashboard can see and edit every profile.
 
+## Resetting a profile
+
+Choose **Reset profile data** in the profile menu to clear that profile's habits and history, tasks, goals, vacations, and freeze tokens while keeping its name and profile entry. Shared tasks created by that profile are removed from every profile. Other profiles are unchanged, and resetting is available even when it is the only profile. This cannot be undone; export a backup first if needed. Use **Remove profile** only when you want to delete the profile itself.
+
 ## Shared tasks
 
 Tasks are personal by default. Mark a task **Shared with all profiles** to show the same task in every profile's list. Any dashboard user can edit, complete, reopen, or delete it; completing it updates the shared task for everyone. Shared tasks remain owned by the profile that created them, so removing that profile also removes its shared tasks. Profiles are a convenience selector, not an access-control boundary.

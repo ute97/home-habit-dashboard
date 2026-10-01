@@ -583,7 +583,7 @@ class Handler(BaseHTTPRequestHandler):
     def mutate(self, db: sqlite3.Connection, path: str, payload: object) -> dict[str, object]:
         if not isinstance(payload, dict):
             raise ApiError("Request body must be an object.")
-        profile_match = re.fullmatch(r"/api/profiles/(\d+)(?:/(tokens))?", path)
+        profile_match = re.fullmatch(r"/api/profiles/(\d+)(?:/(tokens|reset))?", path)
         vacation_profile_match = re.fullmatch(r"/api/profiles/(\d+)/vacations", path)
         vacation_match = re.fullmatch(r"/api/vacations/(\d+)", path)
         habit_match = re.fullmatch(r"/api/habits/(\d+)(?:/(toggle))?", path)
@@ -645,6 +645,14 @@ class Handler(BaseHTTPRequestHandler):
                     raise ApiError("Grant between 1 and 100 tokens.")
                 with db:
                     db.execute("UPDATE profiles SET freeze_tokens = freeze_tokens + ? WHERE id = ?", (amount, profile_id))
+                return {"ok": True}
+            if action == "reset" and method == "POST":
+                with db:
+                    db.execute("DELETE FROM tasks WHERE profile_id = ?", (profile_id,))
+                    db.execute("DELETE FROM vacations WHERE profile_id = ?", (profile_id,))
+                    db.execute("DELETE FROM goals WHERE profile_id = ?", (profile_id,))
+                    db.execute("DELETE FROM habits WHERE profile_id = ?", (profile_id,))
+                    db.execute("UPDATE profiles SET freeze_tokens = 0 WHERE id = ?", (profile_id,))
                 return {"ok": True}
             if not action and method == "PATCH":
                 name = clean_text(payload.get("name"), "Profile name", 60)

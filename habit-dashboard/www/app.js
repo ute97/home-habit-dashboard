@@ -593,6 +593,17 @@
     await load();
   }
 
+  async function resetProfile() {
+    const name = state.data.profile.name;
+    const confirmed = window.confirm(
+      `Reset all data for ${name}? This clears habits and history, tasks, goals, vacations, and freeze tokens. Shared tasks created by this profile will be removed for everyone. The profile itself will remain. This cannot be undone. Export a backup first if needed.`,
+    );
+    if (!confirmed) return;
+    await api(`/api/profiles/${state.profileId}/reset`, { method: "POST", body: JSON.stringify({}) });
+    showToast(`${name}'s profile data was reset.`);
+    await load();
+  }
+
   async function removeProfile() {
     if (!window.confirm(`Remove ${state.data.profile.name} and all of its habits, tasks, vacations, goals, and history? Shared tasks created by this profile will also be removed. Export a backup first if needed.`)) return;
     await api(`/api/profiles/${state.profileId}`, { method: "DELETE", body: JSON.stringify({}) });
@@ -714,6 +725,7 @@
       else if (target.id === "quickAdd") openEditor("habit");
       else if (target.id === "addProfile") await addProfile();
       else if (target.id === "renameProfile") await renameProfile();
+      else if (target.id === "resetProfile") await resetProfile();
       else if (target.id === "removeProfile") await removeProfile();
       else if (target.id === "grantTokens") await grantTokens();
       else if (target.id === "exportButton") await exportData();
