@@ -12,7 +12,7 @@
   const appBase = location.pathname.startsWith("/api/hassio_ingress/")
     ? `${location.pathname.replace(/\/$/, "")}/`
     : "/";
-  const state = { view: "today", profileId: Number(localStorage.getItem("daymark-profile")) || 1, data: null, edit: null, vacationEditId: null };
+  const state = { view: "today", profileId: Number(localStorage.getItem("daymark-profile")) || 1, data: null, edit: null, vacationEditId: null, habitMonthOffset: 0, habitCadence: "daily", taskWeekOffset: 0, goalArea: "All areas" };
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
   let toastTimer;
@@ -122,6 +122,26 @@
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   }
 
+  function cadenceForHabit(habit) {
+    if (["daily"].includes(habit.schedule_type)) return "daily";
+    if (["weekdays", "weekly_days", "weekly_target"].includes(habit.schedule_type)) return "weekly";
+    return "monthly";
+  }
+
+  function monthDates(today, offset = state.habitMonthOffset) {
+    const first = toDate(today);
+    first.setDate(1);
+    first.setMonth(first.getMonth() + offset);
+    const count = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+    return Array.from({ length: count }, (_, index) => localDateString(new Date(first.getFullYear(), first.getMonth(), index + 1)));
+  }
+
+  function taskWeekDates(today, offset = state.taskWeekOffset) {
+    const first = toDate(today);
+    first.setDate(first.getDate() - first.getDay() + offset * 7);
+    return Array.from({ length: 7 }, (_, index) => localDateString(new Date(first.getFullYear(), first.getMonth(), first.getDate() + index)));
+  }
+
   function periodCompletions(habit, type, key) {
     return habit.completions.filter(day => type === "week"
       ? `week:${isoWeekKey(day)}` === key
@@ -196,25 +216,45 @@
     return localDateString(date);
   }
 
+  function setDashboardReady(ready) {
+    ["#profileButton", "#quickAdd", "#profileSelect", "#taskFilter", "#taskScopeFilter"]
+      .forEach(selector => { $(selector).disabled = !ready; });
+    $$("[data-add]").forEach(button => { button.disabled = !ready; });
+  }
+
   async function load() {
+    if (!state.data) {
+      $("#loadNotice").hidden = false;
+      $("#loadMessage").textContent = "Loading your dashboard...";
+      $("#retryLoad").hidden = true;
+      setDashboardReady(false);
+    }
     try {
       state.data = await api(`/api/state?profile_id=${state.profileId}`);
       state.profileId = state.data.profile.id;
       localStorage.setItem("daymark-profile", String(state.profileId));
+      $("#loadNotice").hidden = true;
+      setDashboardReady(true);
       render();
     } catch (error) {
-      showToast(error.message, true);
+      if (state.data) showToast(error.message, true);
+      else {
+        $("#loadMessage").textContent = `Dashboard could not load: ${error.message}`;
+        $("#retryLoad").hidden = false;
+      }
     }
   }
 
   function render() {
+    $("#crumb").textContent = labels[state.view];
+    $$(".view").forEach(view => view.classList.toggle("active", view.id === `view-${state.view}`));
+    $$(".nav-item").forEach(item => item.classList.toggle("active", item.dataset.view === state.view));
     if (!state.data) return;
     const { profile, profiles, habits, tasks, goals, today } = state.data;
     $("#profileName").textContent = profile.name;
     $("#profileAvatar").textContent = profile.name.trim().charAt(0).toUpperCase() || "?";
     $("#freezeCount").textContent = `${profile.freeze_tokens} freeze token${profile.freeze_tokens === 1 ? "" : "s"}`;
     $("#profileSelect").innerHTML = profiles.map(item => `<option value="${item.id}" ${item.id === profile.id ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("");
-    $("#crumb").textContent = labels[state.view];
     const now = toDate(today);
     $("#todayDate").textContent = now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" }).toUpperCase();
     $("#datePill").textContent = now.toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -224,8 +264,6 @@
     renderVacationList();
     renderGoals(goals);
     renderInsights(habits, today);
-    $$(".view").forEach(view => view.classList.toggle("active", view.id === `view-${state.view}`));
-    $$(".nav-item").forEach(item => item.classList.toggle("active", item.dataset.view === state.view));
   }
 
   function renderToday(habits, tasks, today) {
@@ -256,13 +294,25 @@
   }
 
   function renderHabitGrid(habits, today) {
-    const active = habits.filter(habit => habit.active);
-    const archived = habits.filter(habit => !habit.active);
-    $("#emptyGrid").hidden = habits.length > 0;
-    const days = Array.from({ length: 28 }, (_, index) => localDayFrom(today, index - 27));
-    const header = `<div class="grid-row grid-days"><span class="grid-name">HABIT</span>${days.map(day => `<span class="day-label" title="${formatDate(day, { weekday: "long", month: "long", day: "numeric" })}">${toDate(day).getDate()}</span>`).join("")}</div>`;
+    const days = monthDates(today);
+    const matching = habits.filter(habit => cadenceForHabit(habit) === state.habitCadence);
+    const active = matching.filter(habit => habit.active);
+    const archived = matching.filter(habit => !habit.active);
+    const first = toDate(days[0]);
+    $("#habitMonthLabel").textContent = first.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    $$("[data-habit-period]").forEach(button => {
+      const selected = button.dataset.habitPeriod === state.habitCadence;
+      button.classList.toggle("active", selected);
+      button.setAttribute("aria-pressed", String(selected));
+    });
+    const checkedHabits = active.filter(habit => habit.completions.some(day => day.startsWith(days[0].slice(0, 7)) && day <= today)).length;
+    const monthRate = active.length ? Math.round(checkedHabits / active.length * 100) : 0;
+    $("#habitMonthSummary").textContent = `${checkedHabits} of ${active.length} habits checked in this month`;
+    $("#habitMonthProgress").style.width = `${monthRate}%`;
+    $("#emptyGrid").hidden = matching.length > 0;
+    const header = `<div class="grid-row grid-days" style="--day-count:${days.length}"><span class="grid-name">HABIT</span>${days.map(day => `<span class="day-label ${day === today ? "current-day" : ""}" title="${formatDate(day, { weekday: "long", month: "long", day: "numeric" })}">${toDate(day).getDate()}</span>`).join("")}</div>`;
     const row = habit => `
-      <div class="grid-row">
+      <div class="grid-row ${habit.active ? "" : "archived"}" style="--day-count:${days.length}">
         <button class="grid-name grid-habit-edit" data-edit="habit" data-id="${habit.id}" title="Edit ${escapeHtml(habit.name)}">${escapeHtml(habit.name)}</button>
         ${days.map(day => {
           const done = habit.completions.includes(day);
@@ -270,11 +320,12 @@
           const future = day > today;
           const vacation = vacationCoversDay(day);
           const scheduled = isScheduled(habit, day);
-          return `<button class="grid-cell ${done ? "complete" : frozen ? "frozen" : vacation ? "vacation" : scheduled ? "scheduled" : ""} ${future || !habit.active ? "future" : ""}" ${future || !scheduled || !habit.active ? "disabled" : `data-toggle-habit="${habit.id}" data-day="${day}"`} title="${formatDate(day, { weekday: "long", month: "short", day: "numeric" })}${done ? " · completed" : frozen ? " · streak protected" : vacation ? " · vacation" : scheduled ? " · tap to check in" : ""}" aria-label="${escapeHtml(habit.name)} ${day}${vacation ? " vacation" : scheduled ? done ? " completed" : " scheduled" : " not scheduled"}"></button>`;
+          const status = done ? "completed" : frozen ? "streak protected" : vacation ? "vacation" : scheduled ? "scheduled" : "not scheduled";
+          return `<button class="grid-cell ${done ? "complete" : frozen ? "frozen" : vacation ? "vacation" : scheduled ? "scheduled" : ""} ${day === today ? "current-day" : ""} ${future || !habit.active ? "future" : ""}" ${future || !scheduled || !habit.active ? "disabled" : `data-toggle-habit="${habit.id}" data-day="${day}"`} title="${formatDate(day, { weekday: "long", month: "short", day: "numeric" })} · ${status}" aria-label="${escapeHtml(habit.name)} ${day}, ${status}"></button>`;
         }).join("")}
       </div>`;
     $("#habitGrid").innerHTML = header + active.map(row).join("")
-      + (archived.length ? `<div class="grid-row grid-days"><span class="grid-name">ARCHIVED</span>${days.map(() => '<span></span>').join("")}</div>${archived.map(habit => row(habit).replace('class="grid-row"', 'class="grid-row archived"')).join("")}` : "");
+      + (archived.length ? `<div class="grid-row grid-days" style="--day-count:${days.length}"><span class="grid-name">ARCHIVED</span>${days.map(() => "<span></span>").join("")}</div>${archived.map(row).join("")}` : "");
   }
 
   function renderTasks(tasks, today) {
@@ -288,16 +339,32 @@
     const scopeFilter = $("#taskScopeFilter").value;
     const shown = tasks.filter(task => (filter === "all" || (filter === "done" ? task.done : !task.done))
       && (scopeFilter === "all" || Boolean(task.shared) === (scopeFilter === "shared")));
+    const days = taskWeekDates(today);
+    const firstDay = days[0];
+    const lastDay = days[6];
+    $("#taskWeekLabel").textContent = `${formatDate(firstDay, { month: "short", day: "numeric" })} – ${formatDate(lastDay, { month: "short", day: "numeric", year: "numeric" })}`;
     $("#emptyTasks").hidden = shown.length > 0;
-    $("#taskList").innerHTML = shown.map(task => `
-      <div class="task-row ${task.done ? "completed" : ""}">
+    const taskCard = task => `
+      <article class="week-task ${task.done ? "completed" : ""}">
         <button class="check-button ${task.done ? "checked" : ""}" data-toggle-task="${task.id}" aria-label="${task.done ? "Mark open" : "Complete"} ${escapeHtml(task.title)}">${task.done ? "✓" : ""}</button>
-        <div class="task-main"><b>${escapeHtml(task.title)}</b>${task.notes ? `<small>${escapeHtml(task.notes)}</small>` : ""}</div>
-        ${task.shared ? '<span class="task-scope">Shared</span>' : ""}
-        <span class="priority ${task.priority}">${task.priority}</span>
-        <span class="due-label ${task.due_date && task.due_date < today && !task.done ? "overdue" : ""}">${task.due_date ? formatDate(task.due_date) : "No date"}</span>
-        <button class="mini-action" data-edit="task" data-id="${task.id}" aria-label="Edit ${escapeHtml(task.title)}">···</button>
-      </div>
+        <div class="week-task-copy"><b>${escapeHtml(task.title)}${task.shared ? '<span class="task-scope">Shared</span>' : ""}</b>${task.notes ? `<small>${escapeHtml(task.notes)}</small>` : `<small>${escapeHtml(task.priority)} priority</small>`}</div>
+        <div class="week-task-actions"><button class="mini-action" data-edit="task" data-id="${task.id}" aria-label="Edit ${escapeHtml(task.title)}">···</button><button class="mini-action" data-delete="task" data-id="${task.id}" aria-label="Delete ${escapeHtml(task.title)}">×</button></div>
+      </article>`;
+    $("#taskList").innerHTML = `<div class="task-week-board">${days.map(day => {
+      const dayTasks = shown.filter(task => task.due_date === day);
+      return `<section class="task-day ${day === today ? "current-day" : ""}">
+        <header><b>${toDate(day).toLocaleDateString(undefined, { weekday: "short" })}</b><small>${toDate(day).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</small></header>
+        <div class="task-day-items">${dayTasks.map(taskCard).join("")}</div>
+        <button class="add-task-day" type="button" data-add-task-date="${day}">＋ Add task</button>
+      </section>`;
+    }).join("")}</div>`;
+    const backlogGroups = [
+      ["Earlier", shown.filter(task => task.due_date && task.due_date < firstDay)],
+      ["No date", shown.filter(task => !task.due_date)],
+      ["Later", shown.filter(task => task.due_date && task.due_date > lastDay)],
+    ].filter(([, items]) => items.length);
+    $("#taskBacklog").innerHTML = backlogGroups.map(([label, items]) => `
+      <section class="task-backlog-group"><h3>${label}</h3>${items.map(taskCard).join("")}</section>
     `).join("");
   }
 
@@ -706,10 +773,29 @@
     const target = event.target.closest("button");
     if (!target) return;
     try {
-      if (target.id === "profileButton") {
+      if (target.id === "retryLoad") await load();
+      else if (target.dataset.habitMonth) {
+        state.habitMonthOffset += Number(target.dataset.habitMonth);
+        render();
+      } else if (target.dataset.habitPeriod) {
+        state.habitCadence = target.dataset.habitPeriod;
+        render();
+      } else if (target.dataset.taskWeek) {
+        state.taskWeekOffset += Number(target.dataset.taskWeek);
+        render();
+      } else if (target.id === "taskThisWeek") {
+        state.taskWeekOffset = 0;
+        render();
+      } else if (target.dataset.addTaskDate) openEditor("task", { due_date: target.dataset.addTaskDate });
+      else if (target.dataset.goalArea) {
+        state.goalArea = target.dataset.goalArea;
+        render();
+      }
+      else if (target.id === "profileButton") {
         $("#profileMenu").hidden = !$("#profileMenu").hidden;
       } else if (target.dataset.view) navigate(target.dataset.view);
       else if (target.dataset.go) navigate(target.dataset.go);
+      else if (target.id === "addSharedTask") openEditor("task", { shared: true });
       else if (target.dataset.add) openEditor(target.dataset.add);
       else if (target.id === "manageVacations") openVacationDialog();
       else if (target.dataset.editVacation) {
@@ -723,13 +809,13 @@
       else if (target.dataset.toggleTask) await toggleTask(Number(target.dataset.toggleTask));
       else if (target.dataset.delete) await deleteItem(target.dataset.delete, Number(target.dataset.id));
       else if (target.id === "quickAdd") openEditor("habit");
-      else if (target.id === "addProfile") await addProfile();
-      else if (target.id === "renameProfile") await renameProfile();
-      else if (target.id === "resetProfile") await resetProfile();
-      else if (target.id === "removeProfile") await removeProfile();
-      else if (target.id === "grantTokens") await grantTokens();
-      else if (target.id === "exportButton") await exportData();
-      else if (target.id === "importButton") $("#importFile").click();
+      else if (target.id === "addProfile") { $("#profileMenu").hidden = true; await addProfile(); }
+      else if (target.id === "renameProfile") { $("#profileMenu").hidden = true; await renameProfile(); }
+      else if (target.id === "resetProfile") { $("#profileMenu").hidden = true; await resetProfile(); }
+      else if (target.id === "removeProfile") { $("#profileMenu").hidden = true; await removeProfile(); }
+      else if (target.id === "grantTokens") { $("#profileMenu").hidden = true; await grantTokens(); }
+      else if (target.id === "exportButton") { $("#profileMenu").hidden = true; await exportData(); }
+      else if (target.id === "importButton") { $("#profileMenu").hidden = true; $("#importFile").click(); }
       else if (target.id === "closeDialog" || target.id === "cancelDialog") closeEditor();
       else if (target.id === "closeVacationDialog" || target.id === "cancelVacation") $("#vacationDialog").close();
     } catch (error) { showToast(error.message, true); }
@@ -764,5 +850,6 @@
     if (keyView && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) navigate(keyView);
     if (event.key === "Escape" && $("#profileMenu").hidden === false) $("#profileMenu").hidden = true;
   });
+  setDashboardReady(false);
   load();
 })();

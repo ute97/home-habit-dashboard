@@ -16,28 +16,16 @@
 </head>
 <body>
   <div class="app-shell">
-    <aside class="sidebar">
-      <a class="brand" href="#" aria-label="Home Habit Dashboard">
-        <span class="brand-mark">H</span>
-        <span><strong>DAYMARK</strong><small>YOUR PERSONAL DASHBOARD</small></span>
-      </a>
-      <div class="side-label">WORKSPACE</div>
-      <nav id="navigation" aria-label="Main navigation">
-        <button class="nav-item active" data-view="today"><span>◷</span> Today</button>
-        <button class="nav-item" data-view="habits"><span>▦</span> Habit grid</button>
-        <button class="nav-item" data-view="tasks"><span>☷</span> Tasks</button>
-        <button class="nav-item" data-view="goals"><span>◎</span> Goals</button>
-        <button class="nav-item" data-view="insights"><span>⌁</span> Insights</button>
-      </nav>
-      <div class="side-bottom">
-        <div class="local-note"><i></i><span><b>Private by design</b><small>Your data stays on your Home Assistant</small></span></div>
-        <span class="version">DAYMARK · SELF-HOSTED</span>
-      </div>
-    </aside>
-
     <main class="main">
       <header class="topbar">
-        <div class="breadcrumbs"><span>WORKSPACE</span><span class="crumb-sep">/</span><b id="crumb">Today</b></div>
+        <div class="breadcrumbs"><b id="crumb">Today</b></div>
+        <nav id="navigation" class="top-navigation" aria-label="Main navigation">
+          <button class="nav-item active" data-view="today" aria-current="page"><span aria-hidden="true">◷</span><span>Today</span></button>
+          <button class="nav-item" data-view="habits"><span aria-hidden="true">▦</span><span>Habits</span></button>
+          <button class="nav-item" data-view="tasks"><span aria-hidden="true">☷</span><span>Tasks</span></button>
+          <button class="nav-item" data-view="goals"><span aria-hidden="true">◎</span><span>Goals</span></button>
+          <button class="nav-item" data-view="insights"><span aria-hidden="true">⌁</span><span>Insights</span></button>
+        </nav>
         <div class="top-actions">
           <div class="profile-wrap">
             <button class="profile-button" id="profileButton" aria-haspopup="true">
@@ -62,6 +50,10 @@
           <button class="icon-button" id="quickAdd" title="Add new item" aria-label="Add new item">＋</button>
         </div>
       </header>
+      <div id="loadNotice" class="load-notice" role="status" aria-live="polite" hidden>
+        <span id="loadMessage">Loading your dashboard...</span>
+        <button id="retryLoad" class="button secondary" type="button" hidden>Retry</button>
+      </div>
 
       <div class="content">
         <section class="view active" id="view-today">
@@ -93,7 +85,10 @@
             <button class="button primary" data-add="habit">＋ New habit</button>
           </div>
           <section class="card grid-card">
-            <div class="section-head grid-head"><div><div class="eyebrow">YOUR RHYTHM</div><h2>Recent check-ins</h2></div><div class="grid-legend"><span><i class="legend-dot done-dot"></i> Done</span><span><i class="legend-dot freeze-dot"></i> Protected</span><span><i class="legend-dot vacation-dot"></i> Vacation</span></div></div>
+            <div class="section-head grid-head"><div><div class="eyebrow">YOUR RHYTHM</div><h2>Habit history</h2></div><div class="month-switcher"><button class="icon-button" type="button" data-habit-month="-1" aria-label="Previous month">‹</button><b id="habitMonthLabel"></b><button class="icon-button" type="button" data-habit-month="1" aria-label="Next month">›</button></div></div>
+            <div class="habit-period-tabs" role="group" aria-label="Habit schedule period"><button class="period-tab active" data-habit-period="daily" aria-pressed="true">Daily</button><button class="period-tab" data-habit-period="weekly" aria-pressed="false">Weekly</button><button class="period-tab" data-habit-period="monthly" aria-pressed="false">Monthly</button></div>
+            <div class="habit-month-summary"><span id="habitMonthSummary"></span><div class="month-progress-track"><div id="habitMonthProgress"></div></div></div>
+            <div class="grid-legend"><span><i class="legend-dot done-dot"></i> Done</span><span><i class="legend-dot freeze-dot"></i> Protected</span><span><i class="legend-dot vacation-dot"></i> Vacation</span></div>
             <div class="habit-grid-scroll"><div id="habitGrid" class="habit-grid"></div></div>
             <div id="emptyGrid" class="empty-state" hidden><b>Your habit grid starts here.</b><p>Add a daily, weekly, or monthly habit and watch your rhythm take shape.</p><button class="button secondary" data-add="habit">Add your first habit</button></div>
           </section>
@@ -103,10 +98,11 @@
         <section class="view" id="view-tasks">
           <div class="page-heading">
             <div><p class="eyebrow">CLEAR THE DECK</p><h1>One thing <span class="serif-accent">at a time.</span></h1><p class="subtitle">Keep today's priorities moving without losing sight of the rest.</p></div>
-            <button class="button primary" data-add="task">＋ Add task</button>
+            <div class="task-create-actions"><button class="button secondary" id="addSharedTask" type="button">＋ Shared task</button><button class="button primary" data-add="task">＋ Add task</button></div>
           </div>
+          <div class="task-week-nav"><button class="icon-button" type="button" data-task-week="-1" aria-label="Previous week">‹</button><b id="taskWeekLabel"></b><button class="button secondary" type="button" id="taskThisWeek">This week</button><button class="icon-button" type="button" data-task-week="1" aria-label="Next week">›</button></div>
           <div class="task-stats" id="taskStats"></div>
-          <section class="card task-card"><div class="section-head"><div><div class="eyebrow">YOUR LIST</div><h2>Tasks</h2></div><div class="task-filters"><select id="taskFilter" class="small-select" aria-label="Filter by status"><option value="open">To do</option><option value="all">All tasks</option><option value="done">Completed</option></select><select id="taskScopeFilter" class="small-select" aria-label="Filter by sharing"><option value="all">Personal and shared</option><option value="personal">Personal</option><option value="shared">Shared</option></select></div></div><div id="taskList" class="task-list"></div><div id="emptyTasks" class="empty-state" hidden><span class="empty-icon">☷</span><b>Room for a fresh start.</b><p>Add your first task and give it a place on the list.</p><button class="button secondary" data-add="task">Add a task</button></div></section>
+          <section class="card task-card"><div class="section-head"><div><div class="eyebrow">YOUR LIST</div><h2>Tasks</h2></div><div class="task-filters"><select id="taskFilter" class="small-select" aria-label="Filter by status"><option value="open">To do</option><option value="all">All tasks</option><option value="done">Completed</option></select><select id="taskScopeFilter" class="small-select" aria-label="Filter by sharing"><option value="all">Personal and shared</option><option value="personal">Personal</option><option value="shared">Shared</option></select></div></div><div id="taskList" class="task-list"></div><div id="taskBacklog" class="task-backlog"></div><div id="emptyTasks" class="empty-state" hidden><span class="empty-icon">☷</span><b>Room for a fresh start.</b><p>Add your first task and give it a place on the list.</p><button class="button secondary" data-add="task">Add a task</button></div></section>
         </section>
 
         <section class="view" id="view-goals">
@@ -115,29 +111,48 @@
             <button class="button primary" data-add="goal">＋ New goal</button>
           </div>
           <div class="goal-summary" id="goalSummary"></div>
+          <div id="goalAreas" class="goal-areas" aria-label="Goal areas"></div>
           <div id="goalGrid" class="goal-grid"></div>
           <div id="emptyGoals" class="empty-state card" hidden><span class="empty-icon">◎</span><b>Give your progress somewhere to go.</b><p>Set a goal, choose a target, and turn a big ambition into steady steps.</p><button class="button secondary" data-add="goal">Create your first goal</button></div>
         </section>
 
         <section class="view" id="view-insights">
-          <div class="page-heading"><div><p class="eyebrow">A MOMENT TO REFLECT</p><h1>Look how far <span class="serif-accent">you've come.</span></h1><p class="subtitle">Patterns, not perfection. Progress is worth noticing.</p></div><span class="range-label">LAST 28 DAYS</span></div>
+          <div class="page-heading">
+            <div><p class="eyebrow">YOUR PATTERNS</p><h1>See your consistency <span class="serif-accent">clearly.</span></h1><p class="subtitle">Data that reflects your effort, and reveals where to focus next.</p></div>
+          </div>
           <div class="insight-metrics" id="insightMetrics"></div>
           <div class="insight-layout">
-            <section class="card chart-card"><div class="section-head"><div><div class="eyebrow">YOUR CONSISTENCY</div><h2>Daily check-ins</h2></div><span class="chart-caption">Completed habits · last 7 days</span></div><div id="weeklyChart" class="weekly-chart"></div></section>
-            <section class="card insight-card"><div class="eyebrow">YOUR STRONGEST RHYTHM</div><h2 id="strongestTitle">Finding your flow</h2><p id="strongestCopy">A few more check-ins will reveal where you shine.</p><div id="bestHabit" class="best-habit"></div></section>
+            <section class="card chart-card">
+              <div class="section-head"><div><div class="eyebrow">LAST 7 DAYS</div><h2>Daily completions</h2></div></div>
+              <div id="weeklyChart" class="weekly-chart"></div>
+            </section>
+            <section class="card insight-card">
+              <div class="eyebrow">YOUR STANDOUT</div>
+              <h2 id="strongestTitle">Finding your flow</h2>
+              <p id="strongestCopy">A few more check-ins will reveal where you shine.</p>
+              <div class="best-habit" id="bestHabit">Your patterns are just beginning.</div>
+            </section>
           </div>
-          <section class="section-block"><div class="section-head"><div><div class="eyebrow">HABITS AT A GLANCE</div><h2>Your consistency</h2></div></div><div id="habitInsights" class="insight-habit-list"></div></section>
+          <section class="card" style="margin-top:14px;padding:19px 22px">
+            <div class="section-head"><div><div class="eyebrow">HABIT BY HABIT</div><h2>Individual breakdown</h2></div></div>
+            <div id="habitInsights" class="insight-habit-list" style="margin-top:13px"></div>
+          </section>
         </section>
+
       </div>
-      <footer class="mobile-footer"><span>DAYMARK · YOUR PROGRESS, YOUR PACE</span><span>✳</span></footer>
     </main>
   </div>
 
   <dialog id="vacationDialog">
-    <form id="vacationForm">
-      <div class="dialog-head"><div><p class="eyebrow">TIME AWAY</p><h2 id="vacationDialogTitle">Add vacation</h2></div><button type="button" class="close-button" id="closeVacationDialog" aria-label="Close">×</button></div>
-      <p class="vacation-guidance">Daily habits are excused on vacation dates. Weekly or monthly targets are excused only when the entire period is covered. Started vacation ranges cannot be changed.</p>
-      <div class="form-row vacation-date-fields"><div class="field"><label for="vacationStart">START DATE</label><input id="vacationStart" name="start_date" type="date" required></div><div class="field"><label for="vacationEnd">END DATE</label><input id="vacationEnd" name="end_date" type="date" required></div></div>
+    <form id="vacationForm" method="dialog">
+      <div class="dialog-head"><div><p class="eyebrow" id="vacationDialogEyebrow">PLAN AHEAD</p><h2 id="vacationDialogTitle">Add vacation</h2></div><button type="button" class="close-button" id="closeVacationDialog" aria-label="Close">×</button></div>
+      <p class="vacation-guidance">While on vacation, missed habits are excused automatically. Habits completed during a vacation are still counted.</p>
+      <div class="vacation-date-fields">
+        <div class="form-row">
+          <div class="field"><label>START DATE</label><input type="date" id="vacationStart" name="start_date" required></div>
+          <div class="field"><label>END DATE</label><input type="date" id="vacationEnd" name="end_date" required></div>
+        </div>
+      </div>
       <div class="dialog-actions"><button type="button" class="button secondary" id="cancelVacation">Cancel</button><button type="submit" class="button primary" id="saveVacation">Save vacation</button></div>
       <div id="vacationList" class="vacation-list"></div>
     </form>

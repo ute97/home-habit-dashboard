@@ -1,7 +1,7 @@
 name: Home Habit Dashboard
 slug: home_habit_dashboard
 description: A private, self-hosted habit, task, and goal dashboard
-version: "0.1.5"
+version: "0.1.6"
 url: https://github.com/ute97/home-habit-dashboard
 image: ghcr.io/ute97/home-habit-dashboard
 arch:
