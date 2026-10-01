@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101412">
+  <title>Home Habit Dashboard</title>
+  <base id="app-base" href="/">
+  <script>
+    const currentPath = location.pathname;
+    if (currentPath.startsWith("/api/hassio_ingress/")) {
+      document.getElementById("app-base").href = `${currentPath.replace(/\/$/, "")}/`;
+    }
+  </script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="#" aria-label="Home Habit Dashboard">
+        <span class="brand-mark">H</span>
+        <span><strong>DAYMARK</strong><small>YOUR PERSONAL DASHBOARD</small></span>
+      </a>
+      <div class="side-label">WORKSPACE</div>
+      <nav id="navigation" aria-label="Main navigation">
+        <button class="nav-item active" data-view="today"><span>◷</span> Today <kbd>1</kbd></button>
+        <button class="nav-item" data-view="habits"><span>▦</span> Habit grid <kbd>2</kbd></button>
+        <button class="nav-item" data-view="tasks"><span>☷</span> Tasks <kbd>3</kbd></button>
+        <button class="nav-item" data-view="goals"><span>◎</span> Goals <kbd>4</kbd></button>
+        <button class="nav-item" data-view="insights"><span>⌁</span> Insights <kbd>5</kbd></button>
+      </nav>
+      <div class="side-bottom">
+        <div class="local-note"><i></i><span><b>Private by design</b><small>Your data stays on your Home Assistant</small></span></div>
+        <span class="version">DAYMARK · SELF-HOSTED</span>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="breadcrumbs"><span>WORKSPACE</span><span class="crumb-sep">/</span><b id="crumb">Today</b></div>
+        <div class="top-actions">
+          <div class="profile-wrap">
+            <button class="profile-button" id="profileButton" aria-haspopup="true">
+              <span class="avatar" id="profileAvatar">M</span><span class="profile-copy"><b id="profileName">Me</b><small id="freezeCount">0 freeze tokens</small></span><span class="chevron">⌄</span>
+            </button>
+            <div class="profile-menu" id="profileMenu" hidden>
+              <label for="profileSelect">CURRENT PROFILE</label>
+              <select id="profileSelect"></select>
+              <button id="addProfile">＋ Add profile</button>
+              <button id="renameProfile">✎ Rename profile</button>
+              <button id="grantTokens">❄ Grant freeze tokens</button>
+              <button id="removeProfile" class="danger-text">Remove profile</button>
+              <hr>
+              <button id="exportButton">↓ Export data</button>
+              <button id="importButton">↑ Import data</button>
+              <input type="file" id="importFile" accept="application/json,.json" hidden>
+            </div>
+          </div>
+          <button class="icon-button" id="quickAdd" title="Add new item" aria-label="Add new item">＋</button>
+        </div>
+      </header>
+
+      <div class="content">
+        <section class="view active" id="view-today">
+          <div class="page-heading">
+            <div><p class="eyebrow" id="todayDate"></p><h1>Your day, <span class="serif-accent">in focus.</span></h1><p class="subtitle">Small promises, kept consistently. That's how progress happens.</p></div>
+            <button class="button primary" data-add="habit">＋ New habit</button>
+          </div>
+          <div class="today-layout">
+            <section class="card today-card">
+              <div class="section-head"><div><div class="eyebrow">DAILY CHECK-IN</div><h2>Today's habits</h2></div><span class="date-pill" id="datePill"></span></div>
+              <div id="todayHabits" class="habit-list"></div>
+              <div id="emptyHabits" class="empty-state" hidden><span class="empty-icon">✳</span><b>A little intention goes a long way.</b><p>Create your first habit to start building momentum.</p><button class="button secondary" data-add="habit">Create a habit</button></div>
+              <div class="today-footer"><span><i class="legend-dot done-dot"></i> Completed <i class="legend-dot pending-dot"></i> Still to do</span><span id="todayFooterCount"></span></div>
+            </section>
+            <aside class="today-side">
+              <section class="card progress-card">
+                <div class="eyebrow">TODAY'S MOMENTUM</div>
+                <div class="ring-wrap"><svg class="ring" viewBox="0 0 120 120" role="img" aria-label="Today's completion"><circle class="ring-track" cx="60" cy="60" r="50"></circle><circle class="ring-value" id="todayRing" cx="60" cy="60" r="50"></circle></svg><div class="ring-label"><strong id="todayPercent">0%</strong><small>COMPLETE</small></div></div>
+                <p id="ringMessage">Every check-in is a vote for the person you're becoming.</p>
+              </section>
+              <section class="quote-card"><span class="quote-mark">“</span><blockquote>We are what we repeatedly do. Excellence, then, is not an act, but a habit.</blockquote><span class="quote-by">— WILL DURANT</span></section>
+            </aside>
+          </div>
+          <section class="section-block"><div class="section-head"><div><div class="eyebrow">ON YOUR RADAR</div><h2>Coming up</h2></div><button class="text-button" data-go="tasks">All tasks →</button></div><div id="todayTasks" class="coming-list"></div></section>
+        </section>
+
+        <section class="view" id="view-habits">
+          <div class="page-heading">
+            <div><p class="eyebrow">THE BIG PICTURE</p><h1>Make consistency <span class="serif-accent">visible.</span></h1><p class="subtitle">A little progress, repeated often, adds up to a lot.</p></div>
+            <button class="button primary" data-add="habit">＋ New habit</button>
+          </div>
+          <section class="card grid-card">
+            <div class="section-head grid-head"><div><div class="eyebrow">YOUR RHYTHM</div><h2>Recent check-ins</h2></div><div class="grid-legend"><span><i class="legend-dot done-dot"></i> Done</span><span><i class="legend-dot freeze-dot"></i> Protected</span></div></div>
+            <div class="habit-grid-scroll"><div id="habitGrid" class="habit-grid"></div></div>
+            <div id="emptyGrid" class="empty-state" hidden><b>Your habit grid starts here.</b><p>Add a daily, weekly, or monthly habit and watch your rhythm take shape.</p><button class="button secondary" data-add="habit">Add your first habit</button></div>
+          </section>
+          <div class="grid-footnote">Missed days don't erase your progress. Grant freeze tokens from your profile menu to protect future missed periods.</div>
+        </section>
+
+        <section class="view" id="view-tasks">
+          <div class="page-heading">
+            <div><p class="eyebrow">CLEAR THE DECK</p><h1>One thing <span class="serif-accent">at a time.</span></h1><p class="subtitle">Keep today's priorities moving without losing sight of the rest.</p></div>
+            <button class="button primary" data-add="task">＋ Add task</button>
+          </div>
+          <div class="task-stats" id="taskStats"></div>
+          <section class="card task-card"><div class="section-head"><div><div class="eyebrow">YOUR LIST</div><h2>Tasks</h2></div><select id="taskFilter" class="small-select" aria-label="Filter tasks"><option value="open">To do</option><option value="all">All tasks</option><option value="done">Completed</option></select></div><div id="taskList" class="task-list"></div><div id="emptyTasks" class="empty-state" hidden><span class="empty-icon">☷</span><b>Room for a fresh start.</b><p>Add your first task and give it a place on the list.</p><button class="button secondary" data-add="task">Add a task</button></div></section>
+        </section>
+
+        <section class="view" id="view-goals">
+          <div class="page-heading">
+            <div><p class="eyebrow">AIM WITH INTENTION</p><h1>Keep your eyes <span class="serif-accent">on the horizon.</span></h1><p class="subtitle">Break the bigger picture into milestones you can reach.</p></div>
+            <button class="button primary" data-add="goal">＋ New goal</button>
+          </div>
+          <div class="goal-summary" id="goalSummary"></div>
+          <div id="goalGrid" class="goal-grid"></div>
+          <div id="emptyGoals" class="empty-state card" hidden><span class="empty-icon">◎</span><b>Give your progress somewhere to go.</b><p>Set a goal, choose a target, and turn a big ambition into steady steps.</p><button class="button secondary" data-add="goal">Create your first goal</button></div>
+        </section>
+
+        <section class="view" id="view-insights">
+          <div class="page-heading"><div><p class="eyebrow">A MOMENT TO REFLECT</p><h1>Look how far <span class="serif-accent">you've come.</span></h1><p class="subtitle">Patterns, not perfection. Progress is worth noticing.</p></div><span class="range-label">LAST 28 DAYS</span></div>
+          <div class="insight-metrics" id="insightMetrics"></div>
+          <div class="insight-layout">
+            <section class="card chart-card"><div class="section-head"><div><div class="eyebrow">YOUR CONSISTENCY</div><h2>Daily check-ins</h2></div><span class="chart-caption">Completed habits · last 7 days</span></div><div id="weeklyChart" class="weekly-chart"></div></section>
+            <section class="card insight-card"><div class="eyebrow">YOUR STRONGEST RHYTHM</div><h2 id="strongestTitle">Finding your flow</h2><p id="strongestCopy">A few more check-ins will reveal where you shine.</p><div id="bestHabit" class="best-habit"></div></section>
+          </div>
+          <section class="section-block"><div class="section-head"><div><div class="eyebrow">HABITS AT A GLANCE</div><h2>Your consistency</h2></div></div><div id="habitInsights" class="insight-habit-list"></div></section>
+        </section>
+      </div>
+      <footer class="mobile-footer"><span>DAYMARK · YOUR PROGRESS, YOUR PACE</span><span>✳</span></footer>
+    </main>
+  </div>
+
+  <dialog id="editor">
+    <form id="editorForm" method="dialog">
+      <div class="dialog-head"><div><p class="eyebrow" id="dialogEyebrow">MAKE IT YOURS</p><h2 id="dialogTitle">New habit</h2></div><button type="button" class="close-button" id="closeDialog" aria-label="Close">×</button></div>
+      <div id="dialogFields" class="dialog-fields"></div>
+      <div class="dialog-actions"><button type="button" class="button secondary" id="cancelDialog">Cancel</button><button type="submit" class="button primary" id="saveDialog">Save</button></div>
+    </form>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="app.js" defer></script>
+</body>
+</html>
