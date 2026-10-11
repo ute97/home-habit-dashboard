@@ -24,6 +24,7 @@ DB_LOCK = threading.Lock()
 WEEKDAYS = {"Mon": 0, "Tue": 1, "Wed": 2, "Thu": 3, "Fri": 4, "Sat": 5, "Sun": 6}
 HABIT_TYPES = {"daily", "weekdays", "weekly_days", "weekly_target", "monthly_dates", "monthly_target"}
 TASK_PRIORITIES = {"low", "normal", "high"}
+GOAL_AREAS = {"Health", "Work", "Finance", "Relationships", "Learning", "Creativity", "Wellbeing", "Other", ""}
 
 
 class ApiError(Exception):
@@ -159,6 +160,7 @@ def init_db() -> None:
                 profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
                 title TEXT NOT NULL,
                 description TEXT NOT NULL DEFAULT '',
+                area TEXT NOT NULL DEFAULT '',
                 target REAL NOT NULL DEFAULT 1,
                 progress REAL NOT NULL DEFAULT 0,
                 unit TEXT NOT NULL DEFAULT '',
@@ -174,6 +176,9 @@ def init_db() -> None:
         task_columns = {row["name"] for row in db.execute("PRAGMA table_info(tasks)")}
         if "shared" not in task_columns:
             db.execute("ALTER TABLE tasks ADD COLUMN shared INTEGER NOT NULL DEFAULT 0 CHECK (shared IN (0, 1))")
+        goal_columns = {row["name"] for row in db.execute("PRAGMA table_info(goals)")}
+        if "area" not in goal_columns:
+            db.execute("ALTER TABLE goals ADD COLUMN area TEXT NOT NULL DEFAULT ''")
         if db.execute("SELECT COUNT(*) FROM profiles").fetchone()[0] == 0:
             db.execute(
                 "INSERT INTO profiles (name, freeze_tokens, created_at) VALUES (?, 0, ?)",
@@ -415,13 +420,13 @@ def import_data(db: sqlite3.Connection, payload: object) -> None:
         not isinstance(payload, dict)
         or payload.get("format") != "home-habit-dashboard"
         or type(payload.get("version")) is not int
-        or payload["version"] not in {1, 2}
+        or payload["version"] not in {1, 2, 3}
     ):
         raise ApiError("This file is not a supported dashboard export.")
     version = payload["version"]
     tables = payload.get("tables")
     expected = ("profiles", "habits", "completions", "freeze_events", "tasks", "goals")
-    if version == 2:
+    if version in {2, 3}:
         expected += ("vacations",)
     if not isinstance(tables, dict) or any(not isinstance(tables.get(name), list) for name in expected):
         raise ApiError("The export file is incomplete or invalid.")
@@ -438,8 +443,9 @@ def import_data(db: sqlite3.Connection, payload: object) -> None:
                     "completions": {"habit_id", "completed_on"},
                     "freeze_events": {"id", "habit_id", "period_key", "protected_on"},
                     "tasks": {"id", "profile_id", "title", "notes", "due_date", "priority", "done", "created_at", "completed_at"}
-                    | ({"shared"} if version == 2 else set()),
-                    "goals": {"id", "profile_id", "title", "description", "target", "progress", "unit", "due_date", "milestones_json", "created_at"},
+                    | ({"shared"} if version in {2, 3} else set()),
+                    "goals": {"id", "profile_id", "title", "description", "target", "progress", "unit", "due_date", "milestones_json", "created_at"}
+                    | ({"area"} if ("area" in item or version == 3) else set()),
                     "vacations": {"id", "profile_id", "start_date", "end_date", "created_at"},
                 }[table]
                 if set(item) != columns:
@@ -447,10 +453,15 @@ def import_data(db: sqlite3.Connection, payload: object) -> None:
                 item = dict(item)
                 if table == "tasks" and version == 1:
                     item["shared"] = 0
-                if table == "tasks" and version == 2 and (
+                if table == "tasks" and version in {2, 3} and (
                     type(item["shared"]) not in (int, bool) or item["shared"] not in (0, 1)
                 ):
                     raise ApiError("Invalid shared value in tasks.")
+                if table == "goals":
+                    if "area" not in item:
+                        item["area"] = ""
+                    elif item["area"] not in GOAL_AREAS:
+                        raise ApiError("Invalid goal area in export.")
                 if table == "vacations":
                     start = valid_date(item["start_date"], "Vacation start date")
                     end = valid_date(item["end_date"], "Vacation end date")
@@ -770,6 +781,9 @@ class Handler(BaseHTTPRequestHandler):
             profile_exists(db, profile_id)
             title = clean_text(payload.get("title"), "Goal title", 160)
             description = clean_text(payload.get("description", ""), "Description", 1000, required=False)
+            area = clean_text(payload.get("area", ""), "Area", 30, required=False)
+            if area not in GOAL_AREAS:
+                raise ApiError("Choose a valid goal area.")
             target = payload.get("target", 1)
             progress = payload.get("progress", 0)
             unit = clean_text(payload.get("unit", ""), "Unit", 30, required=False)
@@ -784,9 +798,9 @@ class Handler(BaseHTTPRequestHandler):
             with db:
                 cursor = db.execute(
                     """INSERT INTO goals
-                    (profile_id, title, description, target, progress, unit, due_date, milestones_json, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (profile_id, title, description, target, progress, unit, due, json.dumps(milestones), datetime.now().isoformat(timespec="seconds")),
+                    (profile_id, title, description, area, target, progress, unit, due_date, milestones_json, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (profile_id, title, description, area, target, progress, unit, due, json.dumps(milestones), datetime.now().isoformat(timespec="seconds")),
                 )
             return {"id": cursor.lastrowid}
         if goal_match:
@@ -797,6 +811,9 @@ class Handler(BaseHTTPRequestHandler):
             if method == "PATCH":
                 title = clean_text(payload.get("title"), "Goal title", 160)
                 description = clean_text(payload.get("description", ""), "Description", 1000, required=False)
+                area = clean_text(payload.get("area", ""), "Area", 30, required=False)
+                if area not in GOAL_AREAS:
+                    raise ApiError("Choose a valid goal area.")
                 target, progress = payload.get("target", 1), payload.get("progress", 0)
                 unit = clean_text(payload.get("unit", ""), "Unit", 30, required=False)
                 due = valid_date(payload["due_date"], "Due date") if payload.get("due_date") else None
@@ -809,9 +826,9 @@ class Handler(BaseHTTPRequestHandler):
                     raise ApiError("Use up to 30 milestone names, each at most 120 characters.")
                 with db:
                     db.execute(
-                        """UPDATE goals SET title = ?, description = ?, target = ?, progress = ?,
+                        """UPDATE goals SET title = ?, description = ?, area = ?, target = ?, progress = ?,
                         unit = ?, due_date = ?, milestones_json = ? WHERE id = ?""",
-                        (title, description, target, progress, unit, due, json.dumps(milestones), goal_id),
+                        (title, description, area, target, progress, unit, due, json.dumps(milestones), goal_id),
                     )
                 return {"ok": True}
             if method == "DELETE":

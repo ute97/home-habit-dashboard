@@ -29,3 +29,11 @@ Missed daily, selected-weekday, or selected-month-date occurrences inside a vaca
 ## Freeze tokens
 
 Grant tokens manually from the profile menu; they are spent automatically on uncovered misses. Daily or selected-day schedules use one token per missed occurrence. Weekly-target and monthly-target schedules use one token when a period ends below its target. Each occurrence or period is checked once: if no token is available then, the miss is unprotected and a later grant does not repair the streak. Vacation-covered dates and fully covered target periods do not spend tokens.
+
+## Goal life areas
+
+Goals can optionally be assigned to a life area category (Health, Work, Finance, Relationships, Learning, Creativity, Wellbeing, Other). The Goals view includes area filter tabs to quickly isolate goals belonging to a specific life area.
+
+## Light and dark theme
+
+Use the theme toggle button (◐ / ☾) in the topbar to switch between dark and light themes. Your preference is persisted in browser local storage.

@@ -9,10 +9,12 @@
     insights: "Insights",
   };
   const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const GOAL_AREAS = ["Health", "Work", "Finance", "Relationships", "Learning", "Creativity", "Wellbeing", "Other"];
   const appBase = location.pathname.startsWith("/api/hassio_ingress/")
     ? `${location.pathname.replace(/\/$/, "")}/`
     : "/";
-  const state = { view: "today", profileId: Number(localStorage.getItem("daymark-profile")) || 1, data: null, edit: null, vacationEditId: null, habitMonthOffset: 0, habitCadence: "daily", taskWeekOffset: 0, goalArea: "All areas" };
+  const state = { view: "today", profileId: Number(localStorage.getItem("daymark-profile")) || 1, data: null, edit: null, vacationEditId: null, habitMonthOffset: 0, habitCadence: "daily", taskWeekOffset: 0, goalArea: "All areas", theme: localStorage.getItem("daymark-theme") || "dark" };
+  (function applyTheme(t) { document.documentElement.classList.toggle("light", t === "light"); })(state.theme);
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
   let toastTimer;
@@ -138,7 +140,8 @@
 
   function taskWeekDates(today, offset = state.taskWeekOffset) {
     const first = toDate(today);
-    first.setDate(first.getDate() - first.getDay() + offset * 7);
+    const mondayOffset = (first.getDay() + 6) % 7;
+    first.setDate(first.getDate() - mondayOffset + offset * 7);
     return Array.from({ length: 7 }, (_, index) => localDateString(new Date(first.getFullYear(), first.getMonth(), first.getDate() + index)));
   }
 
@@ -256,6 +259,12 @@
     });
     if (!state.data) return;
     const { profile, profiles, habits, tasks, goals, today } = state.data;
+    const themeBtn = $("#themeToggle");
+    if (themeBtn) {
+      themeBtn.textContent = state.theme === "light" ? "☾" : "◐";
+      themeBtn.title = state.theme === "light" ? "Switch to dark mode" : "Switch to light mode";
+      themeBtn.setAttribute("aria-label", state.theme === "light" ? "Switch to dark mode" : "Switch to light mode");
+    }
     $("#profileName").textContent = profile.name;
     $("#profileAvatar").textContent = profile.name.trim().charAt(0).toUpperCase() || "?";
     $("#freezeCount").textContent = `${profile.freeze_tokens} freeze token${profile.freeze_tokens === 1 ? "" : "s"}`;
@@ -380,11 +389,18 @@
       <div class="stat-box"><small>COMPLETED</small><b>${done}</b></div>
       <div class="stat-box"><small>MILESTONES</small><b>${goals.reduce((sum, goal) => sum + goal.milestones.length, 0)}</b></div>
     `;
-    $("#emptyGoals").hidden = goals.length > 0;
-    $("#goalGrid").innerHTML = goals.map(goal => {
+    // Area filter tabs
+    const usedAreas = [...new Set(goals.map(g => g.area || "").filter(Boolean))].sort();
+    const allAreas = ["All areas", ...usedAreas];
+    if (!allAreas.includes(state.goalArea)) state.goalArea = "All areas";
+    $("#goalAreas").innerHTML = allAreas.map(area => `<button class="period-tab ${state.goalArea === area ? "active" : ""}" data-goal-area="${escapeHtml(area)}">${escapeHtml(area)}</button>`).join("");
+    const shown = state.goalArea === "All areas" ? goals : goals.filter(g => (g.area || "") === state.goalArea);
+    $("#emptyGoals").hidden = shown.length > 0;
+    $("#goalGrid").innerHTML = shown.map(goal => {
       const percent = Math.min(100, Math.round(Number(goal.progress) / Number(goal.target) * 100));
       return `<article class="goal-card">
         <div class="goal-card-top"><h2>${escapeHtml(goal.title)}</h2><span class="goal-pct">${percent}%</span></div>
+        ${goal.area ? `<span class="goal-area-badge">${escapeHtml(goal.area)}</span>` : ""}
         <p>${escapeHtml(goal.description || "Every step forward counts.")}</p>
         <div class="progress-track"><div class="progress-fill" style="width:${percent}%"></div></div>
         <div class="goal-progress-copy"><span>${escapeHtml(goal.progress)} / ${escapeHtml(goal.target)} ${escapeHtml(goal.unit)}</span><span>${goal.due_date ? `By ${formatDate(goal.due_date)}` : "No deadline"}</span></div>
@@ -574,6 +590,7 @@
       form.innerHTML = `
         ${field("GOAL", "title", item?.title || "", "text", { required: true, placeholder: "What would you like to work toward?" })}
         ${field("THE WHY (OPTIONAL)", "description", item?.description || "", "textarea")}
+        <div class="field"><label>LIFE AREA (OPTIONAL)</label><select name="area"><option value="">— No category —</option>${GOAL_AREAS.map(a => `<option value="${escapeHtml(a)}" ${(item?.area || "") === a ? "selected" : ""}>${escapeHtml(a)}</option>`).join("")}</select></div>
         <div class="form-row">${field("PROGRESS", "progress", item?.progress ?? 0, "number", { min: 0, step: "any", required: true })}${field("TARGET", "target", item?.target ?? 1, "number", { min: 0.01, step: "any", required: true })}</div>
         <div class="form-row">${field("UNIT (OPTIONAL)", "unit", item?.unit || "", "text", { placeholder: "books, km, sessions" })}${field("TARGET DATE", "due_date", item?.due_date || "", "date")}</div>
         ${field("MILESTONES (OPTIONAL)", "milestones", (item?.milestones || []).join("\n"), "textarea", { hint: "One milestone per line." })}
@@ -614,6 +631,7 @@
     } else {
       payload = {
         profile_id: state.profileId, title: form.get("title"), description: form.get("description"),
+        area: form.get("area") || "",
         target: Number(form.get("target")), progress: Number(form.get("progress")), unit: form.get("unit"),
         due_date: form.get("due_date") || null,
         milestones: String(form.get("milestones") || "").split("\n").map(value => value.trim()).filter(Boolean),
@@ -821,6 +839,14 @@
       else if (target.id === "grantTokens") { $("#profileMenu").hidden = true; await grantTokens(); }
       else if (target.id === "exportButton") { $("#profileMenu").hidden = true; await exportData(); }
       else if (target.id === "importButton") { $("#profileMenu").hidden = true; $("#importFile").click(); }
+      else if (target.id === "themeToggle") {
+        state.theme = state.theme === "dark" ? "light" : "dark";
+        localStorage.setItem("daymark-theme", state.theme);
+        document.documentElement.classList.toggle("light", state.theme === "light");
+        target.setAttribute("aria-label", state.theme === "light" ? "Switch to dark mode" : "Switch to light mode");
+        target.title = state.theme === "light" ? "Switch to dark mode" : "Switch to light mode";
+        target.textContent = state.theme === "light" ? "☾" : "◐";
+      }
       else if (target.id === "closeDialog" || target.id === "cancelDialog") closeEditor();
       else if (target.id === "closeVacationDialog" || target.id === "cancelVacation") $("#vacationDialog").close();
     } catch (error) { showToast(error.message, true); }

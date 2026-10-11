@@ -15,6 +15,73 @@
   --serif: Georgia, 'Times New Roman', serif;
   --sans: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
 }
+:root.light {
+  color-scheme: light;
+  --bg: #f8faf8;
+  --sidebar: #f0f3ef;
+  --panel: #ffffff;
+  --panel-raised: #f3f6f2;
+  --line: #d8ded6;
+  --text: #19221b;
+  --muted: #566458;
+  --faint: #7d8b7f;
+  --mint: #257843;
+  --mint-dark: #e8f5ec;
+  --gold: #9e7922;
+  --red: #c54335;
+}
+:root.light .sidebar { background: var(--sidebar); border-right-color: var(--line); }
+:root.light .brand { color: var(--text); }
+:root.light .brand-mark { color: #ffffff; background: var(--mint); }
+:root.light .nav-item { color: #566458; }
+:root.light .nav-item:hover { color: var(--text); background: #e5ebe3; }
+:root.light .nav-item.active { color: var(--mint); background: #e1ede4; font-weight: 600; }
+:root.light .topbar { background: var(--sidebar); border-bottom-color: var(--line); }
+:root.light .breadcrumbs b { color: var(--text); }
+:root.light .icon-button { border-color: var(--line); color: var(--mint); background: var(--panel); }
+:root.light .icon-button:hover { background: #e5ebe3; }
+:root.light .profile-menu { background: var(--panel); border-color: var(--line); box-shadow: 0 15px 40px #0002; }
+:root.light .profile-menu>button { color: var(--text); }
+:root.light .profile-copy b { color: var(--text); }
+:root.light .card, :root.light .stat-box, :root.light .metric-box { background: var(--panel); border-color: var(--line); }
+:root.light .stat-box b, :root.light .metric-box b { color: var(--text); }
+:root.light .habit-row { background: var(--panel-raised); border-color: var(--line); }
+:root.light .habit-info b { color: var(--text); }
+:root.light h1, :root.light h2 { color: var(--text); }
+:root.light .ring-track { stroke: var(--line); }
+:root.light .ring-label strong { color: var(--text); }
+:root.light .habit-period-tabs, :root.light .goal-areas { background: var(--panel-raised); border-color: var(--line); }
+:root.light .period-tab { color: var(--muted); }
+:root.light .period-tab.active { color: #ffffff; background: var(--mint); }
+:root.light .month-switcher b { color: var(--text); }
+:root.light .grid-row { border-top-color: var(--line); }
+:root.light .grid-name { color: var(--text); }
+:root.light .grid-cell { border-color: var(--line); background: var(--panel-raised); }
+:root.light .grid-cell.scheduled { border-color: #a4b3a2; }
+:root.light .grid-cell.complete { border-color: var(--mint); background: #3fa162; }
+:root.light .small-select, :root.light select, :root.light input, :root.light textarea { color: var(--text); background: var(--panel); border-color: var(--line); }
+:root.light .button.primary { color: #ffffff; background: var(--mint); border-color: var(--mint); }
+:root.light .button.primary:hover { background: #2f8c50; border-color: #2f8c50; }
+:root.light .button.secondary { color: var(--text); background: var(--panel); border-color: var(--line); }
+:root.light .button.secondary:hover { border-color: var(--mint); color: var(--mint); }
+:root.light .week-task { background: var(--panel-raised); border-color: var(--line); }
+:root.light .week-task-copy b { color: var(--text); }
+:root.light .task-day { border-color: var(--line); background: var(--panel); }
+:root.light .task-day header { border-bottom-color: var(--line); }
+:root.light .task-day header b { color: var(--text); }
+:root.light .task-day.current-day { border-color: #72a783; background: #f2f7f3; }
+:root.light .chart-bar-area { background: var(--panel-raised); }
+:root.light .chart-count { color: var(--text); }
+:root.light .insight-card { background: var(--panel); }
+:root.light .best-habit { background: var(--panel-raised); border-color: var(--line); color: var(--text); }
+:root.light .insight-habit { border-bottom-color: var(--line); }
+:root.light .insight-habit-name { color: var(--text); }
+:root.light .insight-pct { color: var(--text); }
+:root.light dialog { background: var(--panel); border-color: var(--line); color: var(--text); box-shadow: 0 25px 100px #0003; }
+:root.light .dialog-head, :root.light .dialog-actions { border-color: var(--line); }
+:root.light .close-button { border-color: var(--line); color: var(--muted); }
+:root.light .goal-card { background: var(--panel); border-color: var(--line); }
+:root.light .goal-area-badge { border-color: #a4b3a2; background: #e8f5ec; color: var(--mint); }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; background: var(--bg); color: var(--text); font: 14px/1.5 var(--sans); }
 button, input, textarea, select { font: inherit; }
@@ -173,7 +240,27 @@ h2 { margin: 3px 0 0; color: #e6e9e2; font-size: 17px; font-weight: 500; letter-
 .task-card { padding: 20px 22px; }
 .task-create-actions { display: flex; gap: 8px; align-items: center; }
 .task-week-nav { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
-.task-week-board { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.task-week-board { display: grid; grid-template-columns: repeat(7, minmax(130px, 1fr)); gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 8px; }
+.task-day { display: flex; flex-direction: column; min-height: 220px; padding: 10px; border: 1px solid #28322c; border-radius: 8px; background: #131915; }
+.task-day.current-day { border-color: #3b5543; background: #151f18; }
+.task-day header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #222a24; }
+.task-day header b { font-size: 11px; font-weight: 600; color: #dfe4dc; }
+.task-day header small { font-size: 9px; color: var(--faint); }
+.task-day.current-day header b { color: var(--mint); }
+.task-day-items { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.add-task-day { margin-top: 8px; padding: 6px; border: 1px dashed #303d33; border-radius: 6px; background: transparent; color: var(--muted); font-size: 10px; cursor: pointer; text-align: center; }
+.add-task-day:hover { border-color: var(--mint); color: var(--mint); background: #1b261e; }
+.week-task { display: flex; align-items: flex-start; gap: 8px; padding: 8px; border: 1px solid #28322c; border-radius: 6px; background: #18201b; }
+.week-task.completed { opacity: 0.6; }
+.week-task .check-button { width: 17px; height: 17px; flex: 0 0 17px; margin-top: 1px; }
+.week-task-copy { min-width: 0; flex: 1; }
+.week-task-copy b { display: block; font-size: 11px; font-weight: 500; color: #dfe4dc; word-break: break-word; }
+.week-task.completed .week-task-copy b { text-decoration: line-through; color: #7f8c82; }
+.week-task-copy small { display: block; margin-top: 2px; font-size: 9px; color: var(--faint); }
+.week-task-actions { display: flex; gap: 2px; }
+.task-backlog { margin-top: 18px; display: grid; gap: 14px; }
+.task-backlog-group h3 { margin: 0 0 8px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); }
+.task-backlog-group { display: flex; flex-direction: column; gap: 6px; }
 .task-filters { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .task-list { margin-top: 13px; }
 .task-row { display: flex; align-items: center; gap: 11px; min-height: 55px; border-top: 1px solid #29322c; }
@@ -189,6 +276,9 @@ h2 { margin: 3px 0 0; color: #e6e9e2; font-size: 17px; font-weight: 500; letter-
 .priority.low { color: #8eab92; background: #1d2c22; }
 .due-label { min-width: 75px; color: var(--muted); text-align: right; font-size: 9px; }
 .due-label.overdue { color: var(--red); }
+.goal-areas { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 16px; padding: 4px; border: 1px solid #252e28; border-radius: 9px; background: #131915; width: fit-content; }
+.goal-areas .period-tab { padding: 0 12px; }
+.goal-area-badge { display: inline-block; margin: 4px 0 8px; padding: 2px 7px; border: 1px solid #3b5543; border-radius: 12px; color: var(--mint); background: #1b2c21; font-size: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
 .goal-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; }
 .goal-card { padding: 20px; border: 1px solid #29332c; border-radius: 9px; background: var(--panel); }
 .goal-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }

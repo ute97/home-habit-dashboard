@@ -1,15 +1,18 @@
 import json
+import os
 import sys
 import tempfile
 import threading
 import unittest
 from datetime import date, timedelta
 from http.server import ThreadingHTTPServer
-from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
+
+os.environ["no_proxy"] = "*"
+os.environ["NO_PROXY"] = "*"
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import server
@@ -176,7 +179,7 @@ class ApiTests(unittest.TestCase):
         habit = self.request("POST", "/api/habits", {
             "profile_id": profile_id, "name": "Swim", "schedule_type": "weekly_target", "schedule": {"target": 3},
         }, expected=201)
-        next_monday = today + timedelta(days=(7 - today.weekday()))
+        next_monday = today + timedelta(days=(7 - today.weekday()) + (7 if today.weekday() == 6 else 0))
         after_week = next_monday + timedelta(days=1)
         state = self.request("GET", f"/api/state?profile_id={profile_id}&today={after_week.isoformat()}")
         self.assertEqual(state["profile"]["freeze_tokens"], 0)
@@ -241,11 +244,12 @@ class ApiTests(unittest.TestCase):
         }, expected=201)
         goal = self.request("POST", "/api/goals", {
             "profile_id": 1, "title": "Read more", "target": 12, "progress": 3, "unit": "books",
-            "milestones": ["First book", "Halfway there"],
+            "area": "Learning", "milestones": ["First book", "Halfway there"],
         }, expected=201)
         exported = self.request("GET", "/api/export")
         self.assertEqual(exported["version"], 2)
         self.assertEqual(exported["tables"]["tasks"][0]["shared"], 1)
+        self.assertEqual(exported["tables"]["goals"][0]["area"], "Learning")
         self.assertEqual(len(exported["tables"]["vacations"]), 1)
         self.request("DELETE", f"/api/tasks/{task['id']}", {"profile_id": 1})
         self.request("DELETE", f"/api/vacations/{vacation['id']}", {"profile_id": 1})
@@ -256,6 +260,10 @@ class ApiTests(unittest.TestCase):
         self.assertTrue(state["tasks"][0]["shared"])
         self.assertEqual(len(state["vacations"]), 1)
         self.assertEqual(state["goals"][0]["milestones"], ["First book", "Halfway there"])
+        self.assertEqual(state["goals"][0]["area"], "Learning")
+        self.request("POST", "/api/goals", {
+            "profile_id": 1, "title": "Invalid area", "area": "NonExistentArea",
+        }, expected=400)
         self.request("POST", "/api/habits", {
             "profile_id": 1, "name": "Invalid", "schedule_type": "weekdays", "schedule": {"weekdays": [9]},
         }, expected=400)
