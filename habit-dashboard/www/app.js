@@ -138,13 +138,6 @@
     return Array.from({ length: count }, (_, index) => localDateString(new Date(first.getFullYear(), first.getMonth(), index + 1)));
   }
 
-  function taskWeekDates(today, offset = state.taskWeekOffset) {
-    const first = toDate(today);
-    const mondayOffset = (first.getDay() + 6) % 7;
-    first.setDate(first.getDate() - mondayOffset + offset * 7);
-    return Array.from({ length: 7 }, (_, index) => localDateString(new Date(first.getFullYear(), first.getMonth(), first.getDate() + index)));
-  }
-
   function periodCompletions(habit, type, key) {
     return habit.completions.filter(day => type === "week"
       ? `week:${isoWeekKey(day)}` === key
@@ -353,32 +346,66 @@
     const scopeFilter = $("#taskScopeFilter").value;
     const shown = tasks.filter(task => (filter === "all" || (filter === "done" ? task.done : !task.done))
       && (scopeFilter === "all" || Boolean(task.shared) === (scopeFilter === "shared")));
-    const days = taskWeekDates(today);
-    const firstDay = days[0];
-    const lastDay = days[6];
-    $("#taskWeekLabel").textContent = `${formatDate(firstDay, { month: "short", day: "numeric" })} – ${formatDate(lastDay, { month: "short", day: "numeric", year: "numeric" })}`;
+
     $("#emptyTasks").hidden = shown.length > 0;
-    const taskCard = task => `
-      <article class="week-task ${task.done ? "completed" : ""}">
-        <button class="check-button ${task.done ? "checked" : ""}" data-toggle-task="${task.id}" aria-label="${task.done ? "Mark open" : "Complete"} ${escapeHtml(task.title)}">${task.done ? "✓" : ""}</button>
-        <div class="week-task-copy"><b>${escapeHtml(task.title)}${task.shared ? '<span class="task-scope">Shared</span>' : ""}</b>${task.notes ? `<small>${escapeHtml(task.notes)}</small>` : `<small>${escapeHtml(task.priority)} priority</small>`}</div>
-        <div class="week-task-actions"><button class="mini-action" data-edit="task" data-id="${task.id}" aria-label="Edit ${escapeHtml(task.title)}">···</button><button class="mini-action" data-delete="task" data-id="${task.id}" aria-label="Delete ${escapeHtml(task.title)}">×</button></div>
-      </article>`;
-    $("#taskList").innerHTML = `<div class="task-week-board">${days.map(day => {
-      const dayTasks = shown.filter(task => task.due_date === day);
-      return `<section class="task-day ${day === today ? "current-day" : ""}">
-        <header><b>${toDate(day).toLocaleDateString(undefined, { weekday: "short" })}</b><small>${toDate(day).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</small></header>
-        <div class="task-day-items">${dayTasks.map(taskCard).join("")}</div>
-        <button class="add-task-day" type="button" data-add-task-date="${day}">＋ Add task</button>
-      </section>`;
-    }).join("")}</div>`;
-    const backlogGroups = [
-      ["Earlier", shown.filter(task => task.due_date && task.due_date < firstDay)],
-      ["No date", shown.filter(task => !task.due_date)],
-      ["Later", shown.filter(task => task.due_date && task.due_date > lastDay)],
-    ].filter(([, items]) => items.length);
-    $("#taskBacklog").innerHTML = backlogGroups.map(([label, items]) => `
-      <section class="task-backlog-group"><h3>${label}</h3>${items.map(taskCard).join("")}</section>
+
+    const taskRow = task => {
+      let dueBadge = '<span class="due-label none">No due date</span>';
+      if (task.due_date) {
+        if (task.due_date < today && !task.done) {
+          dueBadge = `<span class="due-label overdue">Overdue · ${formatDate(task.due_date)}</span>`;
+        } else if (task.due_date === today) {
+          dueBadge = '<span class="due-label today">Due today</span>';
+        } else if (task.due_date === localDayFrom(today, 1)) {
+          dueBadge = '<span class="due-label tomorrow">Tomorrow</span>';
+        } else {
+          dueBadge = `<span class="due-label">${formatDate(task.due_date, { month: "short", day: "numeric" })}</span>`;
+        }
+      }
+      return `
+        <article class="task-row ${task.done ? "completed" : ""}">
+          <button class="check-button ${task.done ? "checked" : ""}" data-toggle-task="${task.id}" aria-label="${task.done ? "Mark open" : "Complete"} ${escapeHtml(task.title)}">${task.done ? "✓" : ""}</button>
+          <div class="task-main">
+            <b>${escapeHtml(task.title)}${task.shared ? '<span class="task-scope">Shared</span>' : ""}</b>
+            ${task.notes ? `<small>${escapeHtml(task.notes)}</small>` : ""}
+          </div>
+          <span class="priority ${escapeHtml(task.priority)}">${escapeHtml(task.priority)}</span>
+          ${dueBadge}
+          <div class="task-row-actions">
+            <button class="mini-action" data-edit="task" data-id="${task.id}" aria-label="Edit ${escapeHtml(task.title)}">···</button>
+            <button class="mini-action" data-delete="task" data-id="${task.id}" aria-label="Delete ${escapeHtml(task.title)}">×</button>
+          </div>
+        </article>`;
+    };
+
+    if (filter === "done") {
+      $("#taskList").innerHTML = shown.length
+        ? `<section class="task-group completed"><div class="task-group-head"><h3>COMPLETED TASKS</h3><span class="task-group-count">${shown.length}</span></div><div class="task-group-list">${shown.map(taskRow).join("")}</div></section>`
+        : "";
+      return;
+    }
+
+    const overdue = shown.filter(t => !t.done && t.due_date && t.due_date < today)
+      .sort((a, b) => a.due_date.localeCompare(b.due_date));
+    const dueToday = shown.filter(t => !t.done && t.due_date === today);
+    const upcoming = shown.filter(t => !t.done && t.due_date && t.due_date > today)
+      .sort((a, b) => a.due_date.localeCompare(b.due_date));
+    const noDate = shown.filter(t => !t.done && !t.due_date);
+    const completed = filter === "all" ? shown.filter(t => t.done) : [];
+
+    const groups = [
+      { name: "OVERDUE", items: overdue, modifier: "overdue" },
+      { name: "DUE TODAY", items: dueToday, modifier: "today" },
+      { name: "UPCOMING", items: upcoming, modifier: "upcoming" },
+      { name: "NO DUE DATE", items: noDate, modifier: "nodate" },
+      { name: "COMPLETED", items: completed, modifier: "completed" },
+    ].filter(g => g.items.length > 0);
+
+    $("#taskList").innerHTML = groups.map(g => `
+      <section class="task-group ${g.modifier}">
+        <div class="task-group-head"><h3>${g.name}</h3><span class="task-group-count">${g.items.length}</span></div>
+        <div class="task-group-list">${g.items.map(taskRow).join("")}</div>
+      </section>
     `).join("");
   }
 
@@ -803,14 +830,7 @@
       } else if (target.dataset.habitPeriod) {
         state.habitCadence = target.dataset.habitPeriod;
         render();
-      } else if (target.dataset.taskWeek) {
-        state.taskWeekOffset += Number(target.dataset.taskWeek);
-        render();
-      } else if (target.id === "taskThisWeek") {
-        state.taskWeekOffset = 0;
-        render();
-      } else if (target.dataset.addTaskDate) openEditor("task", { due_date: target.dataset.addTaskDate });
-      else if (target.dataset.goalArea) {
+      } else if (target.dataset.goalArea) {
         state.goalArea = target.dataset.goalArea;
         render();
       }
